@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>ESTÜ Akademik Portal</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/force-graph"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Roboto', sans-serif; background-color: #f1f5f9; color: #334155; }
+        :root { --estu-blue: #003d82; --estu-dark: #002855; }
+
+        /* Login Background */
+        .login-bg {
+            background-image: url('https://estuoys.eskisehir.edu.tr/accounts/1/files/11881/download?verifier=zf6pO83pq5wzqndBOuW2cNErx0iB9nYioCNQVvKf');
+            background-size: cover; background-position: center bottom; background-attachment: fixed;
+        }
+        .glass-panel { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(16px); border-top: 6px solid var(--estu-blue); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+
+        /* Profil Stili */
+        .profile-header { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 24px 0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+        .avatar-circle { width: 140px; height: 140px; border-radius: 50%; border: 4px solid #fff; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); background: #f1f5f9; overflow: hidden; display:flex; align-items:center; justify-content:center; }
+        .avatar-img { width: 100%; height: 100%; object-fit: cover; }
+
+        /* Sidebar */
+        .sidebar { background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1); }
+        .sidebar a { display: block; padding: 16px 20px; font-weight: 500; color: #64748b; border-left: 4px solid transparent; transition: all 0.2s; border-bottom: 1px solid #f1f5f9; }
+        .sidebar a:hover { background: #f8fafc; color: var(--estu-blue); }
+        .sidebar a.active { background: #fff; color: var(--estu-blue); border-left-color: var(--estu-blue); font-weight: 700; box-shadow: inset 4px 0 0 0 var(--estu-blue); }
+
+        /* Tablo Tasarımı */
+        .info-table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+        .info-table th { background-color: #f8fafc; color: #475569; font-weight: 600; padding: 14px 20px; text-align: left; border-bottom: 1px solid #e2e8f0; width: 25%; }
+        .info-table td { background-color: #fff; padding: 14px 20px; color: #334155; border-bottom: 1px solid #e2e8f0; }
+
+        /* Geçmiş & Log Tablosu */
+        .history-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        .history-table th { background: #f1f5f9; padding: 12px; text-align: left; font-size: 13px; color: #64748b; border-bottom: 2px solid #e2e8f0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .history-table td { padding: 12px; border-bottom: 1px solid #f1f5f9; font-size: 14px; color: #334155; }
+        .history-table tr:hover { background-color: #f8fafc; }
+
+        /* Proje Kartı */
+        .project-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 20px; transition: 0.3s; position: relative; overflow: hidden; }
+        .project-card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); border-color: var(--estu-blue); }
+
+        /* Status Badges */
+        .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+        .status-accepted { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .status-rejected { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+
+        /* Chat Styles */
+        .chat-bubble { max-width: 75%; padding: 10px 15px; border-radius: 15px; font-size: 14px; line-height: 1.4; position: relative; word-wrap: break-word; }
+        .chat-bubble.mine { background-color: #003d82; color: white; border-bottom-right-radius: 2px; margin-left: auto; }
+        .chat-bubble.theirs { background-color: #e2e8f0; color: #334155; border-bottom-left-radius: 2px; margin-right: auto; }
+
+        .loader { border: 3px solid #e2e8f0; border-top: 3px solid var(--estu-blue); border-radius: 50%; width: 28px; height: 28px; animation: spin 1s linear infinite; display: inline-block; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="root" class="h-full"></div>
+
+    <script type="text/babel">
+        // DİKKAT: useRef burada tanımlanmalı
+        const { useState, useEffect, useRef } = React;
+
+        const getTitle = (profile) => {
+            if (profile.Title && profile.Title.length > 2 && profile.Title !== "Öğretim Üyesi") return profile.Title;
+            const nameParts = profile.Fullname.split(' ');
+            if (nameParts[0].includes('.') || ['Prof', 'Doç', 'Dr', 'Arş', 'Öğr'].some(t => nameParts[0].startsWith(t))) return nameParts[0];
+            return "Öğretim Üyesi";
+        };
+
+        // --- EN POPÜLER PROJELER MODALI ---
+        const TopProjectsModal = ({ onClose }) => {
+            const [projects, setProjects] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                axios.get('/api/top-projects/')
+                    .then(res => { setProjects(res.data); setLoading(false); })
+                    .catch(() => setLoading(false));
+            }, []);
+
+            return (
+                <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.3s]">
+                    <div className="bg-white w-full max-w-5xl h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-slate-200">
+                        <div className="bg-[#003d82] p-5 flex justify-between items-center text-white shadow-md z-10">
+                            <h2 className="text-xl font-bold flex items-center gap-2">🔥 En Çok Önerilen 50 Proje</h2>
+                            <button onClick={onClose} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition">✕</button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
+                            {loading ? <div className="text-center py-20"><div className="loader w-12 h-12"></div></div> : (
+                                <div className="grid grid-cols-1 gap-4">
+                                    {projects.map((p, index) => (
+                                        <div key={p.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition flex gap-5 items-start group">
+                                            <div className="bg-slate-100 text-[#003d82] font-black text-xl w-12 h-12 flex items-center justify-center rounded-lg flex-shrink-0 border border-slate-200 group-hover:bg-[#003d82] group-hover:text-white transition">
+                                                {index + 1}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <h3 className="font-bold text-slate-800 text-lg leading-tight hover:text-[#003d82] transition truncate pr-4" title={p.title}>{p.title}</h3>
+                                                    <span className="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-bold border border-orange-200 whitespace-nowrap flex-shrink-0">
+                                                        {p.count} Öneri
+                                                    </span>
+                                                </div>
+                                                <div className="flex flex-wrap gap-3 text-xs font-medium text-slate-500 mb-3">
+                                                    <span className="bg-slate-50 px-2 py-1 rounded border">ID: {p.id}</span>
+                                                    <span className="bg-slate-50 px-2 py-1 rounded border">Bütçe: {p.budget}</span>
+                                                    <span className="bg-slate-50 px-2 py-1 rounded border">Durum: {p.status}</span>
+                                                </div>
+                                                {p.url && p.url !== "#" && (
+                                                    <a href={p.url} target="_blank" className="text-sm text-blue-600 hover:underline flex items-center gap-1 font-medium">
+                                                        🔗 Proje Detaylarını Görüntüle (CORDIS)
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- DUYURULAR MODALI ---
+        const AnnouncementModal = ({ onClose }) => {
+            const [data, setData] = useState([]);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                axios.get('/api/announcements/')
+                    .then(res => { setData(res.data); setLoading(false); })
+                    .catch(()=>setLoading(false));
+            }, []);
+
+            return (
+                <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.3s]">
+                    <div className="bg-white w-full max-w-2xl max-h-[80vh] rounded-xl shadow-2xl flex flex-col">
+                        <div className="bg-[#003d82] p-4 flex justify-between items-center text-white rounded-t-xl">
+                            <h3 className="font-bold text-lg">📢 Güncel Duyurular</h3>
+                            <button onClick={onClose} className="hover:bg-white/20 p-1 rounded">✕</button>
+                        </div>
+                        <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
+                            {loading ? <div className="text-center"><div className="loader w-8 h-8"></div></div> :
+                             data.length === 0 ? <p className="text-slate-500 text-center">Henüz duyuru yok.</p> : (
+                                <div className="space-y-4">
+                                    {data.map((ann, i) => (
+                                        <div key={i} className="bg-white border-l-4 border-[#003d82] p-4 rounded shadow-sm">
+                                            <div className="flex justify-between items-center mb-2">
+                                                <h4 className="font-bold text-slate-800">{ann.title}</h4>
+                                                <span className="text-xs text-slate-400">{ann.date}</span>
+                                            </div>
+                                            <p className="text-sm text-slate-600 whitespace-pre-line">{ann.content}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- GELİŞMİŞ SOHBET MODALI (CHAT) ---
+        const SendMessageModal = ({ onClose, sender, receiver }) => {
+            const [msg, setMsg] = useState("");
+            const [conversation, setConversation] = useState([]);
+            const messagesEndRef = useRef(null);
+
+            const loadMessages = () => {
+                axios.post('/api/messages/', { action: 'list', user: sender, role: 'academician' })
+                    .then(res => {
+                        const filtered = res.data.filter(m =>
+                            (m.sender === sender && m.receiver === receiver) ||
+                            (m.sender === receiver && m.receiver === sender)
+                        );
+                        setConversation(filtered.reverse());
+                    });
+            };
+
+            useEffect(() => {
+                loadMessages();
+                const interval = setInterval(loadMessages, 3000);
+                return () => clearInterval(interval);
+            }, [sender, receiver]);
+
+            useEffect(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, [conversation]);
+
+            const send = (e) => {
+                e.preventDefault();
+                if(!msg.trim()) return;
+                axios.post('/api/messages/', { action: 'send', sender, receiver, content: msg })
+                    .then(res => {
+                        setMsg("");
+                        loadMessages();
+                    });
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s]">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md h-[600px] flex flex-col overflow-hidden">
+
+                        {/* Header */}
+                        <div className="bg-[#003d82] p-4 flex justify-between items-center text-white shadow-md">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-lg">👤</div>
+                                <div>
+                                    <h3 className="font-bold text-md">{receiver}</h3>
+                                    <p className="text-xs text-white/70">Çevrimiçi</p>
+                                </div>
+                            </div>
+                            <button onClick={onClose} className="hover:bg-white/20 p-2 rounded-full transition">✕</button>
+                        </div>
+
+                        {/* Mesaj Alanı */}
+                        <div className="flex-1 bg-slate-100 p-4 overflow-y-auto space-y-3">
+                            {conversation.length === 0 ? (
+                                <div className="text-center text-slate-400 text-sm mt-10">Henüz mesaj yok. İlk mesajı sen at! 👋</div>
+                            ) : (
+                                conversation.map((m, i) => (
+                                    <div key={i} className={`flex flex-col ${m.sender === sender ? 'items-end' : 'items-start'}`}>
+                                        <div className={`chat-bubble ${m.sender === sender ? 'mine' : 'theirs'}`}>
+                                            {m.content}
+                                        </div>
+                                        <span className="text-[10px] text-slate-400 mt-1 px-1">{m.timestamp.split(' ')[1]}</span>
+                                    </div>
+                                ))
+                            )}
+                            <div ref={messagesEndRef} />
+                        </div>
+
+                        {/* Input Alanı */}
+                        <form onSubmit={send} className="bg-white p-3 border-t border-slate-200 flex gap-2 items-center">
+                            <input
+                                type="text"
+                                className="flex-1 bg-slate-100 border-0 rounded-full px-4 py-3 text-sm focus:ring-2 focus:ring-[#003d82] outline-none"
+                                placeholder="Bir mesaj yaz..."
+                                value={msg}
+                                onChange={e=>setMsg(e.target.value)}
+                            />
+                            <button type="submit" className="bg-[#003d82] text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-[#002855] transition shadow-md">
+                                ➤
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- GİRİŞ SAYFASI ---
+        const LoginPage = ({ onLogin }) => {
+            const [view, setView] = useState("login");
+            const [u, setU] = useState("");
+            const [p, setP] = useState("");
+            const [oldPass, setOldPass] = useState("");
+            const [newPass, setNewPass] = useState("");
+            const [err, setErr] = useState("");
+            const [success, setSuccess] = useState("");
+            const [loading, setLoading] = useState(false);
+
+            const handleLogin = (e) => {
+                e.preventDefault(); setLoading(true); setErr("");
+                axios.post('/api/login/', { username: u, password: p }).then(res => {
+                    if(res.data.status === "success") onLogin(res.data.role, res.data.name);
+                }).catch(() => { setErr("Hatalı giriş. Lütfen bilgilerinizi kontrol ediniz."); setLoading(false); });
+            };
+
+            const handleChangePass = (e) => {
+                e.preventDefault(); setLoading(true); setErr(""); setSuccess("");
+                axios.post('/api/change-password/', { email: u, oldPassword: oldPass, newPassword: newPass })
+                    .then(res => {
+                        setSuccess("Şifreniz başarıyla değiştirildi! Şimdi giriş yapabilirsiniz.");
+                        setLoading(false);
+                        setTimeout(() => { setView("login"); setP(""); setOldPass(""); setNewPass(""); }, 2000);
+                    })
+                    .catch(err => {
+                        setErr(err.response?.data?.message || "Bir hata oluştu.");
+                        setLoading(false);
+                    });
+            };
+
+            return (
+                <div className="h-screen login-bg flex flex-col justify-start items-center pt-24 px-4 overflow-y-auto">
+                    <div className="glass-panel p-10 rounded-2xl w-full max-w-md animate-[fadeIn_0.5s]">
+                        <div className="text-center mb-8">
+                            <img src="/images/logo-tek.png" className="h-24 mx-auto mb-4 object-contain drop-shadow-md"/>
+                            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">ESTÜ Akademik Portal</h1>
+                            <p className="text-sm text-slate-600 mt-1 font-medium">Proje Yönetim Sistemi</p>
+                        </div>
+
+                        {err && <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-3 mb-6 text-sm rounded">{err}</div>}
+                        {success && <div className="bg-green-50 border-l-4 border-green-500 text-green-700 p-3 mb-6 text-sm rounded">{success}</div>}
+
+                        {view === "login" ? (
+                            <form onSubmit={handleLogin} className="space-y-5">
+                                <input type="text" className="w-full p-4 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-[#003d82] bg-white/90 focus:bg-white transition" placeholder="E-Posta Adresi" value={u} onChange={e=>setU(e.target.value)} required/>
+                                <input type="password" className="w-full p-4 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-[#003d82] bg-white/90 focus:bg-white transition" placeholder="Şifre" value={p} onChange={e=>setP(e.target.value)} required/>
+                                <button disabled={loading} className="w-full bg-[#003d82] text-white py-4 rounded-lg font-bold hover:bg-[#002855] transition shadow-lg flex justify-center items-center">{loading ? <span className="loader"></span> : 'Giriş Yap'}</button>
+                                <div className="text-center mt-4">
+                                    <button type="button" onClick={()=>setView("forgot")} className="text-sm text-[#003d82] hover:underline font-bold">Şifremi Değiştir / Unuttum</button>
+                                </div>
+                            </form>
+                        ) : (
+                            <form onSubmit={handleChangePass} className="space-y-5">
+                                <h3 className="text-lg font-bold text-center text-slate-700 border-b pb-2">Şifre Yenileme</h3>
+                                <input type="text" className="w-full p-4 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-[#003d82] bg-white/90 focus:bg-white transition" placeholder="E-Posta Adresi" value={u} onChange={e=>setU(e.target.value)} required/>
+                                <input type="password" className="w-full p-4 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-[#003d82] bg-white/90 focus:bg-white transition" placeholder="Eski Şifre (veya varsayılan)" value={oldPass} onChange={e=>setOldPass(e.target.value)} required/>
+                                <input type="password" className="w-full p-4 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-[#003d82] bg-white/90 focus:bg-white transition" placeholder="Yeni Şifre" value={newPass} onChange={e=>setNewPass(e.target.value)} required/>
+                                <button disabled={loading} className="w-full bg-green-600 text-white py-4 rounded-lg font-bold hover:bg-green-700 transition shadow-lg flex justify-center items-center">{loading ? <span className="loader"></span> : 'Şifreyi Güncelle'}</button>
+                                <div className="text-center mt-4">
+                                    <button type="button" onClick={()=>setView("login")} className="text-sm text-slate-500 hover:text-[#003d82]">← Giriş'e Dön</button>
+                                </div>
+                            </form>
+                        )}
+
+                        <div className="mt-8 text-center text-xs text-slate-500 font-medium">© 2026 Eskişehir Teknik Üniversitesi</div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- NOT VE PUAN MODAL ---
+        const NoteModal = ({ isOpen, onClose, onSubmit, type }) => {
+            const [note, setNote] = useState("");
+            const [rating, setRating] = useState(10);
+
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s]">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-8 border-t-8 border-[#003d82]">
+                        <h3 className="text-xl font-bold text-slate-800 mb-2">{type === 'rejected' ? 'Reddetme Sebebi' : 'Kabul Notu'}</h3>
+                        <p className="text-sm text-slate-500 mb-5">{type === 'rejected' ? 'Lütfen sebebini kısaca belirtiniz.' : 'Varsa eklemek istediğiniz notları yazınız.'}</p>
+
+                        <div className="mb-4">
+                            <label className="block text-sm font-bold text-slate-700 mb-2">Proje Uygunluk Puanı (1-10)</label>
+                            <div className="flex items-center gap-4">
+                                <input
+                                    type="range" min="1" max="10" value={rating}
+                                    onChange={(e)=>setRating(e.target.value)}
+                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#003d82]"
+                                />
+                                <span className="font-bold text-xl text-[#003d82] w-8 text-center">{rating}</span>
+                            </div>
+                        </div>
+
+                        <textarea className="w-full border border-slate-300 rounded-lg p-4 text-sm focus:ring-2 focus:ring-[#003d82] outline-none min-h-[120px] bg-slate-50" placeholder="Açıklama..." value={note} onChange={(e)=>setNote(e.target.value)}></textarea>
+
+                        <div className="flex justify-end gap-3 mt-6">
+                            <button onClick={onClose} className="px-5 py-2.5 text-slate-600 hover:bg-slate-100 rounded-lg font-bold">İptal</button>
+                            <button onClick={()=>onSubmit(note, rating)} className={`px-6 py-2.5 text-white rounded-lg font-bold shadow-md ${type==='rejected'?'bg-red-600 hover:bg-red-700':'bg-green-600 hover:bg-green-700'}`}>Gönder</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- PROFİL EKRANI ---
+        const AcademicianProfile = ({ name, role, onLogout, onBackAdmin }) => {
+            const [tab, setTab] = useState("genel");
+            const [data, setData] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [modalOpen, setModalOpen] = useState(false);
+            const [topProjectsOpen, setTopProjectsOpen] = useState(false);
+            const [activeAction, setActiveAction] = useState(null);
+            const [annOpen, setAnnOpen] = useState(false);
+            const [msgOpen, setMsgOpen] = useState(false);
+            const [targetUser, setTargetUser] = useState(null);
+            const [myMessages, setMyMessages] = useState([]);
+
+            // Ağ Grafiği için Referans
+            const graphRef = useRef(null);
+
+            useEffect(() => { axios.post('/api/profile/', { name }).then(res => { setData(res.data); setLoading(false); }); }, [name]);
+
+            const fetchMessages = () => {
+                axios.post('/api/messages/', { action: 'list', user: name, role: 'academician' }).then(r => setMyMessages(r.data));
+            };
+
+            // Tab değiştiğinde yapılacaklar
+            useEffect(() => {
+                if(tab === "mesajlar") fetchMessages();
+
+                // Ağ sekmesi açıldığında grafiği yükle ve çiz
+                if(tab === "ag" && graphRef.current) {
+                    loadNetworkGraph();
+                }
+            }, [tab]);
+
+            // --- AĞ GRAFİĞİNİ YÜKLEME VE ÇİZME (YÖK TARZI) ---
+            const loadNetworkGraph = () => {
+                // Konteynerin boş olduğundan emin ol
+                graphRef.current.innerHTML = "";
+
+                // Backend'den bu kullanıcıya özel veriyi çek (Yıldız Topolojisi)
+                axios.get(`/api/network-graph/?user=${name}`)
+                    .then(res => {
+                        const graphData = res.data;
+                        if(graphData.nodes.length <= 1) { // Sadece kendisi varsa veya hiç yoksa
+                            graphRef.current.innerHTML = "<div class='text-center text-slate-500 mt-20 text-lg'>Bu kullanıcı için henüz onaylanmış bir işbirliği bağlantısı bulunmuyor.</div>";
+                            return;
+                        }
+
+                        const width = graphRef.current.clientWidth;
+                        const height = 600; // Sabit yükseklik
+
+                        // Force Graph Ayarları
+                        const Graph = ForceGraph()(graphRef.current)
+                            .graphData(graphData)
+                            .nodeId('id')
+                            .width(width)
+                            .height(height)
+                            .backgroundColor('#ffffff')
+                            .linkColor(() => '#94a3b8') // Gri bağlantı çizgileri
+                            .linkWidth(2)
+                            .nodeCanvasObject((node, ctx, globalScale) => {
+                                // YÖK Tarzı: Merkezdeki kişi büyük ve farklı renk, diğerleri küçük.
+                                const size = node.isCenter ? 30 : 18;
+                                const borderColor = node.isCenter ? '#f59e0b' : '#003d82'; // Merkez turuncu, diğerleri mavi
+
+                                // Resim Hazırlığı
+                                if (node.img && !node.imgObj) {
+                                    const img = new Image();
+                                    let src = node.img;
+                                    if (!src.startsWith('/') && !src.startsWith('http')) src = `/${src}`;
+                                    // Resim yolu düzeltmeleri
+                                    if (src.includes('akademisyen_fotograflari/akademisyen_fotograflari')) {
+                                        src = src.replace('akademisyen_fotograflari/akademisyen_fotograflari', 'akademisyen_fotograflari');
+                                    } else if (!src.includes('akademisyen_fotograflari')) {
+                                        src = `/akademisyen_fotograflari${src}`;
+                                    }
+                                    img.src = src;
+                                    node.imgObj = img;
+                                }
+
+                                // 1. Gölge (Daha belirgin)
+                                ctx.save();
+                                ctx.shadowColor = "rgba(0,0,0,0.3)";
+                                ctx.shadowBlur = 8;
+                                ctx.shadowOffsetX = 2;
+                                ctx.shadowOffsetY = 2;
+                                ctx.beginPath();
+                                ctx.arc(node.x, node.y, size, 0, 2 * Math.PI, false);
+                                ctx.fillStyle = '#fff';
+                                ctx.fill();
+                                ctx.restore();
+
+                                // 2. Resmi Daire İçine Kırpma ve Çizme
+                                ctx.save();
+                                ctx.beginPath();
+                                ctx.arc(node.x, node.y, size, 0, 2 * Math.PI, false);
+                                ctx.clip();
+
+                                if (node.imgObj && node.imgObj.complete && node.imgObj.naturalWidth !== 0) {
+                                    try {
+                                        // Resmi ortala ve sığdır
+                                        ctx.drawImage(node.imgObj, node.x - size, node.y - size, size * 2, size * 2);
+                                    }
+                                    catch (e) {
+                                        // Resim hatasında düz renk
+                                        ctx.fillStyle = borderColor; ctx.fill();
+                                    }
+                                } else {
+                                    // Resim yoksa düz renk
+                                    ctx.fillStyle = borderColor;
+                                    ctx.fill();
+                                }
+                                ctx.restore();
+
+                                // 3. Kalın Çerçeve
+                                ctx.beginPath();
+                                ctx.arc(node.x, node.y, size, 0, 2 * Math.PI, false);
+                                ctx.lineWidth = node.isCenter ? 4 : 2.5;
+                                ctx.strokeStyle = borderColor;
+                                ctx.stroke();
+
+                                // 4. İsim Etiketi
+                                const label = node.id;
+                                const fontSize = (node.isCenter ? 14 : 11) / globalScale;
+                                ctx.font = `bold ${fontSize}px Sans-Serif`;
+                                ctx.textAlign = 'center';
+                                ctx.textBaseline = 'top';
+                                ctx.fillStyle = '#334155';
+                                // İsmi dairenin biraz altına yaz
+                                ctx.fillText(label, node.x, node.y + size + 5);
+                            });
+
+                            // Fizik Motoru Ayarları (Yıldız yapısını korumak için)
+                            Graph.d3Force('charge').strength(-400); // Düğümler birbirini itsin
+                            Graph.d3Force('link').distance(120); // Bağlantı mesafesi
+                    });
+            };
+
+            const openDecisionModal = (id, title, type) => { setActiveAction({ id, title, type }); setModalOpen(true); };
+
+            const submitDecision = (note, rating) => {
+                const { id, title, type } = activeAction;
+                const newProjects = data.projects.map(p => { if (p.id === id) return { ...p, decision: type, note: note, rating: rating }; return p; });
+                setData({ ...data, projects: newProjects });
+                axios.post('/api/decision/', { academician: name, projId: id, projectTitle: title, decision: type, note: note, rating: rating });
+                setModalOpen(false);
+            };
+
+            const resetDecision = (projId) => {
+                const newProjects = data.projects.map(p => { if (p.id === projId) return { ...p, decision: 'waiting', note: '', rating: 0 }; return p; });
+                setData({ ...data, projects: newProjects });
+            };
+
+            if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50"><div className="loader w-14 h-14 border-4 border-slate-200 border-t-[#003d82]"></div></div>;
+
+            const { profile, projects } = data;
+            const profileImage = profile.Image ? `/${profile.Image}` : null;
+            const displayTitle = getTitle(profile);
+
+            return (
+                <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+                    <header className="profile-header bg-white sticky top-0 z-30">
+                        <div className="container mx-auto px-4 flex justify-between items-center relative">
+                            <div className="flex items-center gap-6">
+                                <div className="avatar-circle flex-shrink-0 text-slate-300 w-16 h-16 sm:w-24 sm:h-24 border-2">
+                                    {profileImage ? <img src={profileImage} alt={profile.Fullname} className="avatar-img"/> : <span className="text-3xl">👤</span>}
+                                </div>
+                                <div>
+                                    <h1 className="text-xl sm:text-2xl font-bold text-slate-800">{profile.Fullname}</h1>
+                                    <p className="text-[#003d82] font-bold text-sm sm:text-base">{displayTitle}</p>
+                                    <div className="text-xs text-slate-500 mt-1 hidden sm:block">{profile.Email}</div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setTopProjectsOpen(true)} className="bg-orange-50 text-orange-600 border border-orange-200 px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-orange-100 transition flex items-center gap-2">
+                                    🔥 <span className="hidden sm:inline">Popüler Projeler</span>
+                                </button>
+                               <button onClick={() => setAnnOpen(true)} className="bg-white text-[#003d82] border border-[#003d82]/20 px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-slate-50 transition flex items-center gap-2 mr-2">
+                                   🔔 Duyurular
+                               </button>
+                                {role === "admin" && <button onClick={onBackAdmin} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-900 transition">Listeye Dön</button>}
+                                <button onClick={onLogout} className="bg-white text-red-600 border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 text-sm font-bold transition">Çıkış</button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <div className="container mx-auto px-4 py-10 flex flex-col md:flex-row gap-8 flex-1">
+                        <aside className="w-full md:w-64 flex-shrink-0">
+                            <div className="sidebar shadow-sm sticky top-36">
+                                <ul className="list-none m-0 p-0">
+                                    <li><a href="#" onClick={(e)=>{e.preventDefault(); setTab("genel")}} className={tab==="genel" ? "active" : ""}>Genel Bilgiler</a></li>
+                                    <li><a href="#" onClick={(e)=>{e.preventDefault(); setTab("proje")}} className={tab==="proje" ? "active" : ""}>Projeler <span className="float-right bg-[#003d82] text-white px-2 rounded-full text-xs mt-0.5 font-bold">{projects.length}</span></a></li>
+                                    <li><a href="#" onClick={(e)=>{e.preventDefault(); setTab("mesajlar")}} className={tab==="mesajlar" ? "active" : ""}>Mesajlar</a></li>
+                                    {/* YENİ EKLENEN SEKME */}
+                                    <li><a href="#" onClick={(e)=>{e.preventDefault(); setTab("ag")}} className={tab==="ag" ? "active" : ""}>İşbirliği Ağı 🕸️</a></li>
+                                </ul>
+                            </div>
+                        </aside>
+
+                        <main className="flex-1 bg-white rounded-xl shadow-sm border border-slate-200 p-8 min-h-[600px]">
+                            {tab === "genel" && (
+                                <div className="animate-[fadeIn_0.3s]">
+                                    <h2 className="text-xl font-bold text-slate-800 mb-6 border-b pb-4">GENEL BİLGİLER</h2>
+                                    <table className="info-table mb-8">
+                                        <tbody>
+                                            <tr><th>Ad Soyad</th><td>{profile.Fullname}</td></tr>
+                                            <tr><th>Ünvan</th><td className="text-[#003d82] font-medium">{displayTitle}</td></tr>
+                                            <tr><th>Birim</th><td>{profile.Field || "-"}</td></tr>
+                                            <tr><th>E-Posta</th><td>{profile.Email}</td></tr>
+                                            <tr><th>Telefon</th><td>{profile.Phone || "-"}</td></tr>
+                                        </tbody>
+                                    </table>
+                                    <h2 className="text-xl font-bold text-slate-800 mb-4 border-b pb-2">AKADEMİK GEÇMİŞ</h2>
+                                    <div className="overflow-hidden rounded-lg border border-slate-200"><table className="history-table"><thead><tr><th>Yıl</th><th>Ünvan</th><th>Kurum</th></tr></thead><tbody>{profile.Duties && profile.Duties.length > 0 ? profile.Duties.map((d, i) => (<tr key={i}><td className="font-bold text-[#003d82]">{d.Year}</td><td className="font-medium">{d.Title}</td><td>{d.University}</td></tr>)) : <tr><td colSpan="3" className="text-center text-slate-500 italic p-4">Bilgi yok.</td></tr>}</tbody></table></div>
+                                </div>
+                            )}
+
+                            {tab === "proje" && (
+                                <div className="animate-[fadeIn_0.3s]">
+                                    <h2 className="text-xl font-bold text-slate-800 mb-6 border-b pb-4 flex justify-between items-center">
+                                        ÖNERİLEN PROJELER
+                                        <span className="text-xs font-bold bg-blue-50 text-blue-700 border border-blue-100 px-3 py-1.5 rounded-full flex items-center gap-2"><span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span> Yapay Zeka Destekli</span>
+                                    </h2>
+                                    <div className="space-y-6">
+                                        {projects.map((p, i) => (
+                                            <div key={i} className={`project-card ${p.decision==='accepted'?'border-green-200 bg-green-50/20':p.decision==='rejected'?'border-red-200 bg-red-50/20':''}`}>
+                                                <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-4">
+                                                    <h3 className="font-bold text-[#003d82] text-lg leading-tight flex-1 hover:underline cursor-pointer">
+                                                        <a href={p.url!=="#" ? p.url : undefined} target="_blank" rel="noreferrer">{p.title}</a>
+                                                    </h3>
+                                                    <span className="bg-slate-800 text-white px-3 py-1 rounded text-sm font-bold shadow-sm">%{p.score} Uyum</span>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2 mb-4 text-xs font-medium text-slate-600">
+                                                    <span className="bg-slate-100 px-3 py-1 rounded border">ID: {p.id}</span>
+                                                    <span className="bg-slate-100 px-3 py-1 rounded border">Bütçe: {p.budget}</span>
+                                                    <span className="bg-slate-100 px-3 py-1 rounded border">Durum: {p.status}</span>
+                                                    {p.url && p.url !== "#" && <a href={p.url} target="_blank" className="bg-blue-100 text-blue-700 px-3 py-1 rounded border border-blue-200 hover:bg-blue-200 transition">🔗 Detaylı Bilgi (AB Sayfası)</a>}
+                                                </div>
+                                                <div className="text-sm text-slate-600 mb-5 bg-slate-50 p-5 rounded border border-slate-100 leading-relaxed text-justify">{p.objective}</div>
+
+                                                {/* İŞBİRLİĞİ ALANI */}
+                                                {p.collaborators && p.collaborators.length > 0 && (
+                                                    <div className="mb-4 bg-indigo-50 border-l-4 border-indigo-500 p-4 rounded-r shadow-sm">
+                                                        <h4 className="text-indigo-900 font-bold text-sm flex items-center gap-2">🤝 İşbirliği Fırsatı</h4>
+                                                        <p className="text-xs text-indigo-700 mt-1">Bu projeyi kabul eden diğer hocalarımız:</p>
+                                                        <div className="flex flex-wrap gap-2 mt-2">
+                                                            {p.collaborators.map((col, k) => (
+                                                                <span key={k} onClick={() => { setTargetUser(col); setMsgOpen(true); }} className="bg-indigo-100 text-indigo-800 px-2 py-1 rounded text-xs font-medium border border-indigo-200 cursor-pointer hover:bg-indigo-200 hover:scale-105 transition">✉️ {col}</span>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                <div className="flex flex-col md:flex-row justify-between items-center gap-4 mt-4 pt-5 border-t border-slate-100">
+                                                    <div className="flex gap-3 items-center">
+                                                        {p.decision === 'waiting' ? (
+                                                            <><button onClick={() => openDecisionModal(p.id, p.title, 'accepted')} className="bg-green-600 text-white px-5 py-2.5 rounded-lg hover:bg-green-700 transition shadow-sm text-sm font-bold flex items-center gap-2 transform active:scale-95"><span>✓</span> Kabul Et</button><button onClick={() => openDecisionModal(p.id, p.title, 'rejected')} className="bg-white text-red-600 border border-red-200 px-5 py-2.5 rounded-lg hover:bg-red-50 transition text-sm font-bold flex items-center gap-2 transform active:scale-95"><span>✕</span> Reddet</button></>
+                                                        ) : (
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="text-right">
+                                                                    <span className={`status-badge ${p.decision === 'accepted' ? 'status-accepted' : 'status-rejected'}`}>{p.decision === 'accepted' ? '✓ KABUL EDİLDİ' : '✕ REDDEDİLDİ'}</span>
+                                                                    {p.note && <div className="text-xs text-slate-500 mt-1 max-w-[200px] truncate" title={p.note}>Not: {p.note}</div>}
+                                                                    {p.rating > 0 && <div className="text-xs text-blue-600 font-bold mt-0.5">Puanım: {p.rating}/10</div>}
+                                                                </div>
+                                                                <button onClick={() => resetDecision(p.id)} className="text-xs text-slate-400 hover:text-blue-600 underline font-medium">Değiştir</button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {tab === "mesajlar" && (
+                                <div className="animate-[fadeIn_0.3s]">
+                                    <h2 className="text-xl font-bold text-slate-800 mb-6 border-b pb-4">MESAJLARIM</h2>
+                                    <div className="space-y-4">
+                                        {myMessages.length === 0 ? <p className="text-slate-500">Hiç mesajınız yok.</p> : myMessages.map((m, i) => (
+                                            <div
+                                                key={i}
+                                                onClick={() => {
+                                                    const partner = m.sender === name ? m.receiver : m.sender;
+                                                    setTargetUser(partner);
+                                                    setMsgOpen(true);
+                                                }}
+                                                className={`p-4 rounded border cursor-pointer hover:shadow-md transition relative group ${m.sender === name ? 'bg-slate-50 border-slate-200 ml-10' : 'bg-blue-50 border-blue-200 mr-10'}`}
+                                            >
+                                                <div className="flex justify-between text-xs font-bold mb-1">
+                                                    <span className="flex items-center gap-2">
+                                                        {m.sender === name ? 'Ben' : m.sender} ➝ {m.receiver === name ? 'Ben' : m.receiver}
+                                                    </span>
+                                                    <span className="text-slate-400">{m.timestamp}</span>
+                                                </div>
+                                                <p className="text-sm text-slate-700">{m.content}</p>
+                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition">
+                                                    <span className="bg-[#003d82] text-white text-[10px] px-2 py-1 rounded-full">Sohbeti Aç 💬</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* --- YENİ EKLENEN İŞBİRLİĞİ AĞI SEKMESİ --- */}
+                            {tab === "ag" && (
+                                <div className="animate-[fadeIn_0.3s] h-full flex flex-col">
+                                    <h2 className="text-xl font-bold text-slate-800 mb-6 border-b pb-4">KİŞİSEL İŞBİRLİĞİ AĞI</h2>
+                                    <p className="text-sm text-slate-500 mb-4">Aşağıdaki grafik, kabul ettiğiniz projelerde sizinle birlikte çalışan diğer akademisyenleri göstermektedir.</p>
+                                    <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl overflow-hidden relative" style={{minHeight: '600px'}}>
+                                        {/* Grafiğin çizileceği konteyner */}
+                                        <div ref={graphRef} className="w-full h-full cursor-move"></div>
+
+                                        {/* Lejant (Açıklama) */}
+                                        <div className="absolute bottom-4 right-4 bg-white/95 p-4 rounded-lg shadow-md text-xs text-slate-700 border border-slate-200 backdrop-blur-sm">
+                                            <h4 className="font-bold mb-2 text-[#003d82]">Gösterim Rehberi</h4>
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <span className="w-4 h-4 rounded-full bg-white border-2 border-[#f59e0b] shadow-sm inline-block"></span>
+                                                <span className="font-medium">Siz (Merkez)</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-3 h-3 rounded-full bg-white border-2 border-[#003d82] shadow-sm inline-block"></span>
+                                                <span>Proje Ortaklarınız</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </main>
+                    </div>
+                    <NoteModal isOpen={modalOpen} onClose={()=>setModalOpen(false)} onSubmit={submitDecision} type={activeAction?.type} />
+                    {topProjectsOpen && <TopProjectsModal onClose={() => setTopProjectsOpen(false)} />}
+                    {annOpen && <AnnouncementModal onClose={() => setAnnOpen(false)} />}
+                    {msgOpen && <SendMessageModal onClose={()=>setMsgOpen(false)} sender={name} receiver={targetUser} />}
+                </div>
+            );
+        };
+
+        const AdminDashboard = ({ onSelectUser, onLogout }) => {
+            const [data, setData] = useState({ academicians: [], feedbacks: [], logs: [], announcements: [] });
+            const [search, setSearch] = useState("");
+            const [load, setLoad] = useState(true);
+            const [viewMode, setViewMode] = useState("list");
+            const [topProjectsOpen, setTopProjectsOpen] = useState(false);
+            const [annForm, setAnnForm] = useState({title: "", content: ""});
+            const [allMessages, setAllMessages] = useState([]);
+
+            const sendAnnouncement = (e) => {
+                e.preventDefault();
+                axios.post('/api/announcements/', annForm).then(res => {
+                    if(res.data.status === 'success') {
+                        alert("Duyuru yayınlandı!");
+                        setAnnForm({title:"", content:""});
+                        axios.get('/api/admin-data/').then(r => setData(r.data));
+                    }
+                });
+            };
+
+            const fetchAdminData = () => {
+                axios.get('/api/admin-data/').then(r => { setData(r.data); setLoad(false); });
+                if(viewMode === "messages") {
+                    axios.post('/api/messages/', { action: 'list', role: 'admin' }).then(r => setAllMessages(r.data));
+                }
+            };
+
+            useEffect(() => { fetchAdminData(); }, [viewMode]);
+
+            const filtered = (data.academicians || []).filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
+
+            return (
+                <div className="min-h-screen bg-slate-100 font-sans">
+                    <header className="bg-[#003d82] text-white p-4 shadow flex justify-between items-center sticky top-0 z-20">
+                        <div className="font-bold flex items-center gap-2 text-lg"><img src="/images/logo-tek.png" className="h-9 bg-white rounded-full p-0.5"/> Yönetici Paneli</div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setTopProjectsOpen(true)} className="text-sm bg-orange-500 text-white px-3 py-2 rounded-lg hover:bg-orange-600 font-bold mr-4 shadow-sm flex items-center gap-1">🔥 Top 50</button>
+                            <button onClick={()=>setViewMode("list")} className={`text-sm px-4 py-2 rounded-lg font-medium transition ${viewMode==="list" ? "bg-white text-[#003d82] shadow" : "hover:bg-white/10"}`}>Akademisyenler</button>
+                            <button onClick={()=>setViewMode("feedbacks")} className={`text-sm px-4 py-2 rounded-lg font-medium transition ${viewMode==="feedbacks" ? "bg-white text-[#003d82] shadow" : "hover:bg-white/10"}`}>
+                                Geri Bildirimler <span className="ml-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full shadow-sm">{data.feedbacks.length}</span>
+                            </button>
+                            <button onClick={()=>setViewMode("logs")} className={`text-sm px-4 py-2 rounded-lg font-medium transition ${viewMode==="logs" ? "bg-white text-[#003d82] shadow" : "hover:bg-white/10"}`}>Erişim Kayıtları</button>
+                            <button onClick={()=>setViewMode("announcements")} className={`text-sm px-4 py-2 rounded-lg font-medium transition ${viewMode==="announcements" ? "bg-white text-[#003d82] shadow" : "hover:bg-white/10"}`}>Duyurular</button>
+                            <button onClick={()=>setViewMode("messages")} className={`text-sm px-4 py-2 rounded-lg font-medium transition ${viewMode==="messages" ? "bg-white text-[#003d82] shadow" : "hover:bg-white/10"}`}>Mesajlar</button>
+                            {/* AĞ HARİTASI BUTONU BURADAN KALDIRILDI */}
+                            <button onClick={onLogout} className="text-sm bg-red-600 px-4 py-2 rounded-lg hover:bg-red-700 ml-4 font-bold shadow-md">Çıkış</button>
+                        </div>
+                    </header>
+
+                    <div className="container mx-auto p-6 max-w-7xl">
+                        {viewMode === "list" && (
+                            <>
+                                <div className="mb-8 sticky top-20 z-10 pt-4 bg-slate-100 pb-2">
+                                    <input type="text" placeholder="İsim ile akademisyen ara..." className="w-full p-4 pl-6 rounded-full border border-slate-200 shadow-lg outline-none focus:ring-4 focus:ring-[#003d82]/20 text-lg transition text-slate-700" onChange={e=>setSearch(e.target.value)}/>
+                                </div>
+                                {load ? <div className="text-center mt-20"><div className="loader w-14 h-14 border-4"></div></div> : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        {filtered.map((item, i) => (
+                                            <div key={i} onClick={()=>onSelectUser(item.name)} className="bg-white p-6 rounded-xl shadow-sm border border-transparent hover:border-[#003d82] cursor-pointer transition group hover:shadow-xl transform hover:-translate-y-1">
+                                                <div className="flex items-center gap-5">
+                                                    <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-2xl group-hover:bg-[#003d82] group-hover:text-white transition shadow-inner overflow-hidden border-2 border-white ring-2 ring-slate-100">
+                                                        {item.image ? <img src={`/${item.image}`} alt={item.name} className="w-full h-full object-cover"/> : "👤"}
+                                                    </div>
+                                                    <div className="overflow-hidden">
+                                                        <h3 className="font-bold text-slate-800 truncate group-hover:text-[#003d82] text-lg">{item.name}</h3>
+                                                        <p className="text-xs text-slate-500 truncate">{item.email}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-5 flex justify-between items-center text-sm text-gray-500 border-t pt-4">
+                                                    <span className="font-medium bg-slate-50 px-2 py-1 rounded">{item.project_count} Proje Önerisi</span>
+                                                    <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full font-bold border border-green-200 shadow-sm">En iyi: %{item.best_score}</span>
+                                                    {item.average_rating > 0 && <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold border border-blue-200 shadow-sm ml-2">Ort. Puan: {item.average_rating}/10</span>}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </>
+                        )}
+                        {viewMode === "feedbacks" && (
+                            <div className="bg-white rounded-xl shadow-md p-8 border border-slate-200 animate-[fadeIn_0.3s]">
+                                <h2 className="text-2xl font-bold mb-6 text-slate-800 border-b pb-4">Akademisyen Geri Bildirimleri</h2>
+                                {data.feedbacks.length === 0 ? <p className="text-slate-500 text-center py-12 bg-slate-50 rounded-lg border border-dashed border-slate-300">Henüz hiçbir akademisyen işlem yapmadı.</p> : (
+                                    <div className="overflow-x-auto rounded-lg border border-slate-200">
+                                        <table className="w-full text-left border-collapse">
+                                            <thead>
+                                                <tr className="bg-slate-100 text-slate-600 text-xs uppercase tracking-wider">
+                                                    <th className="p-4 border-b font-bold">Akademisyen</th>
+                                                    <th className="p-4 border-b font-bold">Proje ID</th>
+                                                    <th className="p-4 border-b font-bold">Karar</th>
+                                                    <th className="p-4 border-b font-bold">Puan</th>
+                                                    <th className="p-4 border-b font-bold">Açıklama / Not</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {data.feedbacks.map((fb, idx) => (
+                                                    <tr key={idx} className="hover:bg-slate-50 text-sm transition border-b last:border-0 border-slate-100">
+                                                        <td className="p-4 font-bold text-slate-700">{fb.academician}</td>
+                                                        <td className="p-4 font-mono text-xs text-slate-500">{fb.projId}</td>
+                                                        <td className="p-4">
+                                                            <span className={`px-3 py-1 rounded-full text-xs font-bold border ${fb.decision==='accepted' ? 'bg-green-100 text-green-800 border-green-200' : 'bg-red-100 text-red-800 border-red-200'}`}>
+                                                                {fb.decision === 'accepted' ? '✓ Kabul Edildi' : '✕ Reddedildi'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-4 font-bold text-blue-600">{fb.rating ? fb.rating : '-'}</td>
+                                                        <td className="p-4 text-slate-600 italic max-w-sm break-words bg-slate-50/50">{fb.note || "-"}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {viewMode === "logs" && (
+                            <div className="bg-white rounded-xl shadow-md p-8 border border-slate-200 animate-[fadeIn_0.3s]">
+                                <h2 className="text-2xl font-bold mb-6 text-slate-800 border-b pb-4">Sistem Erişim Kayıtları</h2>
+                                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-slate-100 text-slate-600 text-xs uppercase tracking-wider">
+                                                <th className="p-4 border-b font-bold">Zaman</th>
+                                                <th className="p-4 border-b font-bold">Kullanıcı</th>
+                                                <th className="p-4 border-b font-bold">Rol</th>
+                                                <th className="p-4 border-b font-bold">İşlem</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {data.logs && data.logs.map((log, idx) => (
+                                                <tr key={idx} className="hover:bg-slate-50 text-sm transition border-b last:border-0 border-slate-100">
+                                                    <td className="p-4 text-slate-500 font-mono text-xs">{log.timestamp}</td>
+                                                    <td className="p-4 font-bold text-slate-700">{log.name}</td>
+                                                    <td className="p-4"><span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs border">{log.role}</span></td>
+                                                    <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${log.action.includes('Giriş') ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}`}>{log.action}</span></td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+                        {viewMode === "announcements" && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-[fadeIn_0.3s]">
+                                <div className="bg-white rounded-xl shadow-md p-8 border border-slate-200 h-fit">
+                                    <h2 className="text-2xl font-bold mb-6 text-slate-800 border-b pb-4">Yeni Duyuru Ekle</h2>
+                                    <form onSubmit={sendAnnouncement} className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">Duyuru Başlığı</label>
+                                            <input type="text" required className="w-full p-3 border border-slate-300 rounded outline-none focus:ring-2 focus:ring-[#003d82]"
+                                                value={annForm.title} onChange={e=>setAnnForm({...annForm, title:e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">İçerik</label>
+                                            <textarea required className="w-full p-3 border border-slate-300 rounded outline-none focus:ring-2 focus:ring-[#003d82] min-h-[150px]"
+                                                value={annForm.content} onChange={e=>setAnnForm({...annForm, content:e.target.value})}></textarea>
+                                        </div>
+                                        <button type="submit" className="w-full bg-green-600 text-white py-3 rounded font-bold hover:bg-green-700 transition">Yayınla</button>
+                                    </form>
+                                </div>
+                                <div className="bg-white rounded-xl shadow-md p-8 border border-slate-200">
+                                    <h2 className="text-2xl font-bold mb-6 text-slate-800 border-b pb-4">Aktif Duyurular</h2>
+                                    <div className="space-y-4 max-h-[500px] overflow-y-auto">
+                                        {data.announcements && data.announcements.length > 0 ? data.announcements.map((ann, i) => (
+                                            <div key={i} className="bg-slate-50 p-4 rounded border border-slate-200">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <h3 className="font-bold text-[#003d82]">{ann.title}</h3>
+                                                    <button onClick={() => { if(confirm("Bu duyuruyu silmek istediğinize emin misiniz?")) { axios.post('/api/announcements/', { action: 'delete', index: i }).then(() => fetchAdminData()); } }} className="text-red-500 text-xs font-bold hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded transition">Sil 🗑️</button>
+                                                </div>
+                                                <p className="text-sm text-slate-600 mt-1 whitespace-pre-line">{ann.content}</p>
+                                                <div className="text-xs text-slate-400 mt-2 text-right">{ann.date}</div>
+                                            </div>
+                                        )) : <p className="text-slate-500 italic">Henüz duyuru eklenmemiş.</p>}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        {viewMode === "messages" && (
+                            <div className="bg-white rounded-xl shadow-md p-8 border border-slate-200 animate-[fadeIn_0.3s]">
+                                <h2 className="text-2xl font-bold mb-6 text-slate-800 border-b pb-4">Tüm Mesaj Trafiği</h2>
+                                <div className="space-y-3">
+                                    {allMessages.map((m, i) => (
+                                        <div key={i} className="p-3 border-b border-slate-100 hover:bg-slate-50">
+                                            <div className="flex justify-between text-xs text-slate-500 mb-1">
+                                                <span className="font-bold text-[#003d82]">{m.sender} ➝ {m.receiver}</span>
+                                                <span>{m.timestamp}</span>
+                                            </div>
+                                            <div className="text-sm text-slate-700">{m.content}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    {topProjectsOpen && <TopProjectsModal onClose={() => setTopProjectsOpen(false)} />}
+                </div>
+            );
+        };
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const onLogin = (role, name) => { setUser({ role, name }); };
+            const onLogout = () => { if(user) axios.post('/api/logout/', { name: user.name, role: user.role }); setUser(null); };
+
+            if (!user) return <LoginPage onLogin={onLogin} />;
+            if (user.role === "admin") {
+                if (user.viewingProfile) return <AcademicianProfile name={user.viewingProfile} role="admin" onLogout={onLogout} onBackAdmin={() => setUser({...user, viewingProfile: null})} />;
+                return <AdminDashboard onSelectUser={(name) => setUser({...user, viewingProfile: name})} onLogout={onLogout} />;
+            }
+            if (user.role === "academician") return <AcademicianProfile name={user.name} role="academician" onLogout={onLogout} />;
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+    <style>.animate-[fadeIn_0.5s] { animation: fadeIn 0.5s ease-out; } @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }</style>
+</body>
+</html>
