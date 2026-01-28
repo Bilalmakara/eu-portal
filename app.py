@@ -16,15 +16,16 @@ from django.views.static import serve
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DIST_DIR = os.path.join(BASE_DIR, 'dist')
 ASSETS_DIR = os.path.join(DIST_DIR, 'assets')
+IMAGES_DIR = os.path.join(BASE_DIR, 'images') # Resim klasörü
 
-# Dosya Yolları
+# Veri Dosyaları
 DECISIONS_FILE = os.path.join(BASE_DIR, 'decisions.json')
 LOGS_FILE = os.path.join(BASE_DIR, 'access_logs.json')
 ANNOUNCEMENTS_FILE = os.path.join(BASE_DIR, 'announcements.json')
 MESSAGES_FILE = os.path.join(BASE_DIR, 'messages.json')
 PASSWORDS_FILE = os.path.join(BASE_DIR, 'passwords.json')
 
-# MIME TYPE AYARLARI (Linux sunucular için hayati önem taşır)
+# MIME TYPE TANIMLAMALARI (Resimlerin ve JS'lerin doğru çalışması için şart)
 mimetypes.init()
 mimetypes.add_type("application/javascript", ".js", True)
 mimetypes.add_type("text/css", ".css", True)
@@ -48,11 +49,12 @@ if not settings.configured:
             'corsheaders.middleware.CorsMiddleware',
             'django.middleware.common.CommonMiddleware',
         ],
-        CORS_ALLOW_ALL_ORIGINS=True,
+        CORS_ALLOW_ALL_ORIGINS=True, # Her yerden gelen isteği kabul et
+        CORS_ALLOW_CREDENTIALS=True,
         STATIC_URL='/static/',
     )
 
-# 2. GLOBAL VERİTABANI
+# 2. GLOBAL VERİTABANI VE YÜKLEME
 ACADEMICIANS_BY_NAME = {}
 ACADEMICIANS_BY_EMAIL = {}
 PROJECTS_DB = {}
@@ -132,30 +134,44 @@ def log_access(name, role, action):
         save_json(LOGS_FILE, ACCESS_LOGS)
     except: pass
 
-# --- GELİŞMİŞ DOSYA SUNUCUSU (MIME TYPE FIX) ---
+# --- AKILLI DOSYA VE REACT SUNUCUSU (SİHİRLİ KISIM) ---
 def serve_react(request, resource=""):
-    # 1. Dosya yolu belirle
-    path = os.path.join(DIST_DIR, resource) if resource else os.path.join(DIST_DIR, 'index.html')
+    print(f"İSTEK GELDİ: {resource}") # Render loglarında görünür
     
-    # 2. Dosya varsa sun (Doğru MIME Type ile)
-    if os.path.exists(path) and os.path.isfile(path):
-        mime_type, _ = mimetypes.guess_type(path)
-        # Bazı sunucular JS/CSS tanımaz, elle düzeltiyoruz:
-        if path.endswith(".js"): mime_type = "application/javascript"
-        elif path.endswith(".css"): mime_type = "text/css"
-        elif path.endswith(".svg"): mime_type = "image/svg+xml"
-        
-        return FileResponse(open(path, 'rb'), content_type=mime_type)
+    # 1. Ana dosya dist içinde var mı? (logo.png, vite.svg vb.)
+    path_in_dist = os.path.join(DIST_DIR, resource)
+    if resource and os.path.exists(path_in_dist) and os.path.isfile(path_in_dist):
+        mime_type, _ = mimetypes.guess_type(path_in_dist)
+        return FileResponse(open(path_in_dist, 'rb'), content_type=mime_type)
+
+    # 2. Dosya IMAGES klasöründe var mı? (YEDEK PLAN - Logo kurtarıcı)
+    # Eğer istek 'logo.png' ise ve dist'te yoksa, images/logo.png'ye bakar
+    path_in_images = os.path.join(IMAGES_DIR, resource)
+    if resource and os.path.exists(path_in_images) and os.path.isfile(path_in_images):
+        return FileResponse(open(path_in_images, 'rb'))
+    
+    # Eğer istek 'images/logo.png' diye geldiyse ve üstteki tutmadıysa:
+    if resource.startswith("images/"):
+        clean_name = resource.replace("images/", "")
+        path_check = os.path.join(IMAGES_DIR, clean_name)
+        if os.path.exists(path_check):
+            return FileResponse(open(path_check, 'rb'))
+
+    # 3. Eğer bir RESİM veya CSS/JS isteniyorsa ama bulunamadıysa 404 dön (HTML dönme!)
+    # Bu, kırık resimlerin "sayfa gibi" görünmesini engeller
+    filename, ext = os.path.splitext(resource)
+    if ext.lower() in ['.png', '.jpg', '.jpeg', '.svg', '.css', '.js', '.json']:
+        return HttpResponse(f"Dosya bulunamadı: {resource}", status=404)
             
-    # 3. Dosya yoksa index.html gönder (SPA Yönlendirmesi)
+    # 4. Hiçbiri değilse, bu bir React Sayfasıdır -> index.html gönder
     try:
         return FileResponse(open(os.path.join(DIST_DIR, 'index.html'), 'rb'))
     except FileNotFoundError:
-        return HttpResponse("Sistem yükleniyor... Lütfen bekleyiniz.", status=503)
+        return HttpResponse("Sistem yükleniyor... (Build bekleniyor)", status=503)
 
 def serve_academician_photo(request, image_name):
     path = os.path.join(BASE_DIR, 'akademisyen_fotograflari', image_name)
-    if os.path.exists(path): return FileResponse(open(path, 'rb'), content_type="image/jpeg")
+    if os.path.exists(path): return FileResponse(open(path, 'rb'))
     return HttpResponse("Foto yok", 404)
 
 # --- API ENDPOINTLERİ ---
@@ -166,7 +182,8 @@ def api_login(request):
             d = json.loads(request.body)
             u = d.get('username', '').strip()
             p = d.get('password', '').strip()
-            
+            print(f"LOGIN DENEMESİ: {u} - {p}") # Loglara yaz
+
             # Admin Girişi
             if u == "admin" and p == "12345":
                 log_access("Admin", "Yönetici", "Giriş Başarılı")
@@ -182,7 +199,9 @@ def api_login(request):
                     return JsonResponse({"status": "success", "role": "academician", "name": acc["Fullname"]})
             
             return JsonResponse({"status": "error", "message": "Giriş başarısız"}, status=401)
-        except Exception as e: return JsonResponse({"status": "error", "message": str(e)}, status=400)
+        except Exception as e:
+            print(f"LOGIN HATASI: {str(e)}")
+            return JsonResponse({"status": "error", "message": str(e)}, status=400)
     return JsonResponse({}, status=405)
 
 # Diğer API'ler
@@ -195,57 +214,38 @@ def api_list_admin(request):
         nk = m["name"]
         if nk not in stats:
             det = ACADEMICIANS_BY_NAME.get(nk.upper(), {})
-            stats[nk] = {
-                "name": nk, "email": det.get("Email", "-"), "title": det.get("Title", "Akademisyen"),
-                "project_count": 0, "best_score": 0, "image": det.get("Image"), "total_rating": 0, "rating_count": 0
-            }
+            stats[nk] = {"name": nk, "email": det.get("Email", "-"), "title": det.get("Title", "Akademisyen"), "project_count": 0, "best_score": 0, "image": det.get("Image"), "total_rating": 0, "rating_count": 0}
         stats[nk]["project_count"] += 1
         if m["score"] > stats[nk]["best_score"]: stats[nk]["best_score"] = m["score"]
     for fb in FEEDBACK_DB:
-        name = fb.get("academician")
-        rating = fb.get("rating", 0)
-        if name in stats and rating > 0:
-            stats[name]["total_rating"] += rating
-            stats[name]["rating_count"] += 1
+        name = fb.get("academician"); rating = fb.get("rating", 0)
+        if name in stats and rating > 0: stats[name]["total_rating"] += rating; stats[name]["rating_count"] += 1
     final_list = []
     for s in stats.values():
-        avg = 0
-        if s["rating_count"] > 0: avg = round(s["total_rating"] / s["rating_count"], 1)
+        avg = round(s["total_rating"] / s["rating_count"], 1) if s["rating_count"] > 0 else 0
         s["average_rating"] = avg
         final_list.append(s)
-    return JsonResponse({
-        "academicians": final_list, "feedbacks": FEEDBACK_DB, "logs": ACCESS_LOGS, "announcements": ANNOUNCEMENTS
-    }, safe=False)
+    return JsonResponse({"academicians": final_list, "feedbacks": FEEDBACK_DB, "logs": ACCESS_LOGS, "announcements": ANNOUNCEMENTS}, safe=False)
 
 @csrf_exempt
 def api_profile(request):
     if request.method == 'POST':
         req_name = json.loads(request.body).get('name')
         raw_profile = ACADEMICIANS_BY_NAME.get(req_name.upper(), {})
-        profile = {
-            "Fullname": req_name, "Email": raw_profile.get("Email", "-"), "Description": raw_profile.get("Description", ""),
-            "Field": raw_profile.get("Field", "-"), "Phone": raw_profile.get("Phone", "-"), "Image": raw_profile.get("Image"),
-            "Title": raw_profile.get("Title", "Öğretim Üyesi"), "Duties": raw_profile.get("Duties", [])
-        }
+        profile = {"Fullname": req_name, "Email": raw_profile.get("Email", "-"), "Description": raw_profile.get("Description", ""), "Field": raw_profile.get("Field", "-"), "Phone": raw_profile.get("Phone", "-"), "Image": raw_profile.get("Image"), "Title": raw_profile.get("Title", "Öğretim Üyesi"), "Duties": raw_profile.get("Duties", [])}
         p_matches = [m for m in MATCHES_DB if m["name"] == req_name]
         enriched = []
         for m in p_matches:
             pd = PROJECTS_DB.get(m["projId"], {})
             stat, note, rating = "waiting", "", 0
             for fb in FEEDBACK_DB:
-                if fb["academician"] == req_name and fb["projId"] == m["projId"]:
-                    stat = fb["decision"]; note = fb.get("note", ""); rating = fb.get("rating", 0); break
+                if fb["academician"] == req_name and fb["projId"] == m["projId"]: stat = fb["decision"]; note = fb.get("note", ""); rating = fb.get("rating", 0); break
             collaborators = []
             for fb in FEEDBACK_DB:
-                if fb["projId"] == m["projId"] and fb["decision"] == "accepted" and fb["academician"] != req_name:
-                    collaborators.append(fb["academician"])
-            project_title = pd.get("title")
+                if fb["projId"] == m["projId"] and fb["decision"] == "accepted" and fb["academician"] != req_name: collaborators.append(fb["academician"])
+            project_title = pd.get("title"); 
             if not project_title or project_title == "Nan": project_title = pd.get("acronym") or f"Proje-{m['projId']}"
-            enriched.append({
-                "id": m["projId"], "score": m["score"], "reason": m["reason"], "title": project_title,
-                "objective": pd.get("objective", ""), "budget": pd.get("overall_budget", "-"), "status": pd.get("status", "-"),
-                "url": pd.get("url", "#"), "decision": stat, "note": note, "rating": rating, "collaborators": collaborators
-            })
+            enriched.append({"id": m["projId"], "score": m["score"], "reason": m["reason"], "title": project_title, "objective": pd.get("objective", ""), "budget": pd.get("overall_budget", "-"), "status": pd.get("status", "-"), "url": pd.get("url", "#"), "decision": stat, "note": note, "rating": rating, "collaborators": collaborators})
         enriched.sort(key=lambda x: x['score'], reverse=True)
         return JsonResponse({"profile": profile, "projects": enriched})
     return JsonResponse({}, 400)
@@ -254,61 +254,39 @@ def api_profile(request):
 def api_project_decision(request):
     if request.method == 'POST':
         try:
-            d = json.loads(request.body)
-            acc = d.get("academician"); pid = d.get("projId"); dec = d.get("decision")
-            title = d.get("projectTitle"); note = d.get("note", ""); rating = d.get("rating", 0)
-            found = False
+            d = json.loads(request.body); acc = d.get("academician"); pid = d.get("projId"); dec = d.get("decision"); title = d.get("projectTitle"); note = d.get("note", ""); rating = d.get("rating", 0); found = False
             for item in FEEDBACK_DB:
-                if item["academician"] == acc and item["projId"] == pid:
-                    item["decision"] = dec; item["note"] = note; item["rating"] = int(rating)
-                    item["timestamp"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M"); found = True; break
-            if not found:
-                FEEDBACK_DB.append({
-                    "academician": acc, "projId": pid, "projectTitle": title, "decision": dec,
-                    "note": note, "rating": int(rating), "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                })
+                if item["academician"] == acc and item["projId"] == pid: item["decision"] = dec; item["note"] = note; item["rating"] = int(rating); item["timestamp"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M"); found = True; break
+            if not found: FEEDBACK_DB.append({"academician": acc, "projId": pid, "projectTitle": title, "decision": dec, "note": note, "rating": int(rating), "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")})
             save_json(DECISIONS_FILE, FEEDBACK_DB)
             return JsonResponse({"status": "success"})
         except Exception as e: return JsonResponse({"error": str(e)}, status=400)
     return JsonResponse({}, 405)
 
 def api_top_projects(request):
-    cnt = Counter(m['projId'] for m in MATCHES_DB).most_common(50)
-    top = []
+    cnt = Counter(m['projId'] for m in MATCHES_DB).most_common(50); top = []
     for pid, c in cnt:
         pd = PROJECTS_DB.get(pid, {})
-        top.append({
-            "id": pid, "count": c, "title": pd.get("title") or pd.get("acronym") or f"Proje-{pid}",
-            "budget": pd.get("overall_budget", "-"), "status": pd.get("status", "-"),
-            "coordinated_by": pd.get("coordinated_by", "-"), "url": pd.get("url", "#")
-        })
+        top.append({"id": pid, "count": c, "title": pd.get("title") or pd.get("acronym") or f"Proje-{pid}", "budget": pd.get("overall_budget", "-"), "status": pd.get("status", "-"), "coordinated_by": pd.get("coordinated_by", "-"), "url": pd.get("url", "#")})
     return JsonResponse(top, safe=False)
 
 def api_network_graph(request):
-    target_user_name = request.GET.get('user')
-    nodes = []; links = []; existing_node_ids = set()
+    target_user_name = request.GET.get('user'); nodes = []; links = []; existing_node_ids = set()
     if not target_user_name: return JsonResponse({"nodes": [], "links": []}, safe=False)
     user_details = ACADEMICIANS_BY_NAME.get(target_user_name.upper())
-    if user_details:
-        nodes.append({"id": user_details["Fullname"], "img": user_details.get("Image"), "isCenter": True, "val": 3})
-        existing_node_ids.add(user_details["Fullname"])
+    if user_details: nodes.append({"id": user_details["Fullname"], "img": user_details.get("Image"), "isCenter": True, "val": 3}); existing_node_ids.add(user_details["Fullname"])
     else: return JsonResponse({"nodes": [], "links": []}, safe=False)
-    my_accepted_projects = set()
-    for fb in FEEDBACK_DB:
-        if fb.get("academician") == user_details["Fullname"] and fb.get("decision") == "accepted":
-            my_accepted_projects.add(fb.get("projId"))
+    my_accepted_projects = set(); 
+    for fb in FEEDBACK_DB: 
+        if fb.get("academician") == user_details["Fullname"] and fb.get("decision") == "accepted": my_accepted_projects.add(fb.get("projId"))
     collaborators = set()
     for fb in FEEDBACK_DB:
-        other_user = fb.get("academician"); proj_id = fb.get("projId")
-        if other_user != user_details["Fullname"] and fb.get("decision") == "accepted" and proj_id in my_accepted_projects:
-            collaborators.add(other_user)
+        if fb.get("academician") != user_details["Fullname"] and fb.get("decision") == "accepted" and fb.get("projId") in my_accepted_projects: collaborators.add(fb.get("academician"))
     for col_name in collaborators:
         if col_name not in existing_node_ids:
             col_details = ACADEMICIANS_BY_NAME.get(col_name.upper(), {})
-            nodes.append({"id": col_name, "img": col_details.get("Image"), "isCenter": False, "val": 1})
-            existing_node_ids.add(col_name)
-        link_exists = any(((l['source'] == user_details["Fullname"] and l['target'] == col_name) or
-                           (l['source'] == col_name and l['target'] == user_details["Fullname"])) for l in links)
+            nodes.append({"id": col_name, "img": col_details.get("Image"), "isCenter": False, "val": 1}); existing_node_ids.add(col_name)
+        link_exists = any(((l['source'] == user_details["Fullname"] and l['target'] == col_name) or (l['source'] == col_name and l['target'] == user_details["Fullname"])) for l in links)
         if not link_exists: links.append({"source": user_details["Fullname"], "target": col_name})
     return JsonResponse({"nodes": nodes, "links": links}, safe=False)
 
@@ -318,18 +296,9 @@ def api_announcements(request): return JsonResponse(ANNOUNCEMENTS, safe=False)
 def api_messages(request):
     if request.method == 'POST':
         try:
-            d = json.loads(request.body)
-            action = d.get('action')
-            if action == 'send':
-                new_id = len(MESSAGES) + 1
-                msg = { "id": new_id, "sender": d.get("sender"), "receiver": d.get("receiver"), "content": d.get("content"), "timestamp": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"), "read": False }
-                MESSAGES.insert(0, msg)
-                save_json(MESSAGES_FILE, MESSAGES)
-                return JsonResponse({"status": "success"})
-            elif action == 'list':
-                user = d.get("user"); role = d.get("role")
-                if role == "admin": return JsonResponse(MESSAGES, safe=False)
-                else: return JsonResponse([m for m in MESSAGES if m.get("receiver") == user or m.get("sender") == user], safe=False)
+            d = json.loads(request.body); action = d.get('action')
+            if action == 'send': MESSAGES.insert(0, { "id": len(MESSAGES) + 1, "sender": d.get("sender"), "receiver": d.get("receiver"), "content": d.get("content"), "timestamp": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"), "read": False }); save_json(MESSAGES_FILE, MESSAGES); return JsonResponse({"status": "success"})
+            elif action == 'list': user = d.get("user"); role = d.get("role"); return JsonResponse(MESSAGES, safe=False) if role == "admin" else JsonResponse([m for m in MESSAGES if m.get("receiver") == user or m.get("sender") == user], safe=False)
         except Exception as e: return JsonResponse({"error": str(e)}, status=400)
     return JsonResponse({}, 405)
 @csrf_exempt
@@ -337,22 +306,19 @@ def api_change_password(request):
     if request.method == 'POST':
         try:
             d = json.loads(request.body); email = d.get('email'); new_pass = d.get('newPassword')
-            if email in ACADEMICIANS_BY_EMAIL:
-                PASSWORDS_DB[email] = new_pass; save_json(PASSWORDS_FILE, PASSWORDS_DB)
-                return JsonResponse({"status": "success"})
+            if email in ACADEMICIANS_BY_EMAIL: PASSWORDS_DB[email] = new_pass; save_json(PASSWORDS_FILE, PASSWORDS_DB); return JsonResponse({"status": "success"})
         except: return JsonResponse({"error": "Hata"}, 400)
     return JsonResponse({}, 405)
 
 # --- URL YÖNLENDİRMELERİ ---
 urlpatterns = [
     # 1. Assets (JS/CSS)
-    re_path(r'^assets/(?P<path>.*)$', serve_react),
+    re_path(r'^assets/(?P<path>.*)$', serve, {'document_root': ASSETS_DIR}),
     
-    # 2. Resimler
-    path('images/<str:image_name>', lambda r, image_name: FileResponse(open(os.path.join(BASE_DIR, 'images', image_name), 'rb')) if os.path.exists(os.path.join(BASE_DIR, 'images', image_name)) else HttpResponse(status=404)),
+    # 2. Akademisyen Fotoğrafları
     path('akademisyen_fotograflari/<str:image_name>', serve_academician_photo),
 
-    # 3. API'ler
+    # 3. API'ler (Soru işareti sayesinde / olmasa da çalışır)
     re_path(r'^api/login/?$', api_login),
     re_path(r'^api/logout/?$', api_logout),
     re_path(r'^api/admin-data/?$', api_list_admin),
@@ -364,7 +330,7 @@ urlpatterns = [
     re_path(r'^api/messages/?$', api_messages),
     re_path(r'^api/change-password/?$', api_change_password),
     
-    # 4. React (Her şeyi yakalar)
+    # 4. React (Logoları, resimleri ve sayfaları yakalar)
     re_path(r'^(?P<resource>.*)$', serve_react),
 ]
 
