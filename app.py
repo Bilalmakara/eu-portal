@@ -50,7 +50,7 @@ if not settings.configured:
 
 # 2. VERİLERİ YÜKLE
 def load_data():
-    # 1. JSON Yükleyiciler
+    # JSON Yükleyiciler
     for key, var_name in [('decisions', 'FEEDBACK'), ('logs', 'LOGS'), ('announcements', 'ANNOUNCEMENTS'), 
                           ('messages', 'MESSAGES'), ('passwords', 'PASSWORDS')]:
         if os.path.exists(FILES[key]):
@@ -58,7 +58,7 @@ def load_data():
                 with open(FILES[key], 'r', encoding='utf-8') as f: DB[var_name] = json.load(f)
             except: pass
 
-    # 2. Akademisyenler
+    # Akademisyenler
     if os.path.exists(FILES['academicians']):
         try:
             with open(FILES['academicians'], 'r', encoding='utf-8') as f:
@@ -68,7 +68,7 @@ def load_data():
                     if p.get("Email"): DB['ACADEMICIANS_BY_EMAIL'][p["Email"].strip().lower()] = p
         except: pass
 
-    # 3. Projeler
+    # Projeler
     if os.path.exists(FILES['projects']):
         try:
             with open(FILES['projects'], 'r', encoding='utf-8') as f:
@@ -78,7 +78,7 @@ def load_data():
                     if pid: DB['PROJECTS'][pid] = p
         except: pass
 
-    # 4. Eşleşmeler
+    # Eşleşmeler
     if os.path.exists(FILES['matches']):
         try:
             with open(FILES['matches'], 'r', encoding='utf-8') as f:
@@ -102,21 +102,7 @@ def load_data():
 
 load_data()
 
-# 3. SİSTEM DURUM RAPORU (KONTROL İÇİN)
-def system_status(request):
-    status = {
-        "DURUM": "Çalışıyor",
-        "DOSYALAR": {k: "VAR" if os.path.exists(v) else "YOK (Eksik)" for k,v in FILES.items()},
-        "VERI_SAYILARI": {
-            "Akademisyenler": len(DB['ACADEMICIANS_BY_EMAIL']),
-            "Projeler": len(DB['PROJECTS']),
-            "Eslesmeler": len(DB['MATCHES']),
-            "Fotograf_Klasoru": "VAR" if os.path.exists(PHOTOS_DIR) else "YOK"
-        }
-    }
-    return JsonResponse(status, json_dumps_params={'indent': 4})
-
-# 4. YARDIMCI FONKSİYONLAR
+# 3. YARDIMCI FONKSİYONLAR
 def save_json(file_path, data):
     try:
         with open(file_path, 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False, indent=4)
@@ -125,31 +111,35 @@ def save_json(file_path, data):
 def log_access(name, role, action):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     DB['LOGS'].insert(0, {"timestamp": now, "name": name, "role": role, "action": action})
+    if len(DB['LOGS']) > 500: DB['LOGS'].pop()
     save_json(FILES['logs'], DB['LOGS'])
 
-# 5. DOSYA SUNUCULARI
-def serve_files(request, path, folder, default_type=None):
+# 4. AKILLI DOSYA SUNUCUSU (Büyük/Küçük Harf Sorununu Çözer)
+def serve_files_smart(request, path, folder, default_type=None):
+    # 1. Önce tam dosya adını dene
     target_path = os.path.join(folder, path)
     if os.path.exists(target_path):
         mtype, _ = mimetypes.guess_type(target_path)
         return FileResponse(open(target_path, 'rb'), content_type=mtype or default_type)
     
-    # Case-insensitive arama (Linux için)
+    # 2. Bulamazsa klasördeki tüm dosyaları tara (Case-Insensitive Arama)
     if os.path.exists(folder):
-        for f in os.listdir(folder):
-            if f.lower() == path.lower():
-                mtype, _ = mimetypes.guess_type(os.path.join(folder, f))
-                return FileResponse(open(os.path.join(folder, f), 'rb'), content_type=mtype or default_type)
+        target_lower = path.lower()
+        for filename in os.listdir(folder):
+            if filename.lower() == target_lower:
+                full_path = os.path.join(folder, filename)
+                mtype, _ = mimetypes.guess_type(full_path)
+                return FileResponse(open(full_path, 'rb'), content_type=mtype or default_type)
     
     return HttpResponse(status=404)
 
 def serve_react(request, resource=""):
-    if resource.startswith("assets/"): return serve_files(request, resource, DIST_DIR)
-    if resource and os.path.exists(os.path.join(DIST_DIR, resource)): return serve_files(request, resource, DIST_DIR)
+    if resource.startswith("assets/"): return serve_files_smart(request, resource, DIST_DIR)
+    if resource and os.path.exists(os.path.join(DIST_DIR, resource)): return serve_files_smart(request, resource, DIST_DIR)
     try: return FileResponse(open(os.path.join(DIST_DIR, 'index.html'), 'rb'))
     except: return HttpResponse("Sistem yükleniyor...", status=503)
 
-# 6. API ENDPOINTLERİ
+# 5. API ENDPOINTLERİ
 @csrf_exempt
 def api_login(request):
     if request.method == 'POST':
@@ -181,6 +171,8 @@ def api_profile(request):
             if not req_name: return JsonResponse({}, 400)
             
             raw_profile = DB['ACADEMICIANS_BY_NAME'].get(req_name.upper(), {})
+            
+            # Fotoğraf yolu düzeltme
             img_path = raw_profile.get("Image")
             if img_path and not img_path.startswith("http"):
                 img_path = f"/akademisyen_fotograflari/{os.path.basename(img_path)}"
@@ -244,6 +236,7 @@ def api_list_admin(request):
             det = DB['ACADEMICIANS_BY_NAME'].get(nk.upper(), {})
             img = det.get("Image")
             if img and not img.startswith("http"): img = f"akademisyen_fotograflari/{os.path.basename(img)}"
+            
             stats[nk] = {"name": nk, "email": det.get("Email", "-"), "project_count": 0, "best_score": 0, "image": img}
         stats[nk]["project_count"] += 1
         if m["score"] > stats[nk]["best_score"]: stats[nk]["best_score"] = m["score"]
@@ -334,11 +327,9 @@ def api_logout(request): return JsonResponse({"status": "success"})
 
 # URL YÖNLENDİRMELERİ
 urlpatterns = [
-    # Rapor Sayfası (Sorunu buradan anlayacağız)
-    path('status/', system_status),
-
-    re_path(r'^images/(?P<path>.*)$', lambda r, path: serve_files(r, path, IMAGES_DIR, "image/png")),
-    re_path(r'^akademisyen_fotograflari/(?P<path>.*)$', lambda r, path: serve_files(r, path, PHOTOS_DIR, "image/jpeg")),
+    # Akıllı Resim Sunucusu (Klasördeki dosyayı adını büyüklü/küçüklü arar)
+    re_path(r'^images/(?P<path>.*)$', lambda r, path: serve_files_smart(r, path, IMAGES_DIR, "image/png")),
+    re_path(r'^akademisyen_fotograflari/(?P<path>.*)$', lambda r, path: serve_files_smart(r, path, PHOTOS_DIR, "image/jpeg")),
     
     # API
     re_path(r'^api/login/?$', api_login),
