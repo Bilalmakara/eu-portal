@@ -2,20 +2,20 @@ import os
 import sys
 import json
 import datetime
-import itertools
+import mimetypes
 from collections import Counter
 from django.conf import settings
 from django.core.management import execute_from_command_line
 from django.core.wsgi import get_wsgi_application
-from django.urls import path, re_path  # <--- EKLENDİ (re_path)
+from django.urls import path, re_path
 from django.http import JsonResponse, HttpResponse, FileResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.static import serve  # <--- EKLENDİ (Dosya sunmak için)
+from django.views.static import serve
 
 # 1. PROJE AYARLARI
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DIST_DIR = os.path.join(BASE_DIR, 'dist')  # <--- EKLENDİ (React Build Klasörü)
-ASSETS_DIR = os.path.join(DIST_DIR, 'assets') # <--- EKLENDİ (JS/CSS Dosyaları)
+DIST_DIR = os.path.join(BASE_DIR, 'dist')  # React Build Klasörü
+ASSETS_DIR = os.path.join(DIST_DIR, 'assets') # JS/CSS Dosyaları
 
 DECISIONS_FILE = os.path.join(BASE_DIR, 'decisions.json')
 LOGS_FILE = os.path.join(BASE_DIR, 'access_logs.json')
@@ -25,8 +25,8 @@ PASSWORDS_FILE = os.path.join(BASE_DIR, 'passwords.json')
 
 if not settings.configured:
     settings.configure(
-        DEBUG=True, # Hata detaylarını görebilmek için geçici olarak True yaptık
-        SECRET_KEY='zoym@3l4r-&wb1y9*a31r!1fu^jgp*#j8!nbip#iwm1auzlh!',
+        DEBUG=True,
+        SECRET_KEY='gizli-anahtar',
         ROOT_URLCONF=__name__,
         ALLOWED_HOSTS=['*'],
         INSTALLED_APPS=[
@@ -40,10 +40,6 @@ if not settings.configured:
             'django.middleware.common.CommonMiddleware',
         ],
         CORS_ALLOW_ALL_ORIGINS=True,
-        TEMPLATES=[{
-            'BACKEND': 'django.template.backends.django.DjangoTemplates',
-            'DIRS': [BASE_DIR],
-        }],
         STATIC_URL='/static/',
     )
 
@@ -58,102 +54,70 @@ ANNOUNCEMENTS = []
 MESSAGES = []
 PASSWORDS_DB = {}
 
-
 def load_data():
     global ACADEMICIANS_BY_NAME, ACADEMICIANS_BY_EMAIL, PROJECTS_DB, MATCHES_DB, FEEDBACK_DB, ACCESS_LOGS, ANNOUNCEMENTS, MESSAGES, PASSWORDS_DB
-    print("SİSTEM BAŞLATILIYOR")
+    print("SİSTEM VERİLERİ YÜKLENİYOR...")
 
-    # Dosya yükleme işlemleri (AYNEN KORUNDU)
-    if os.path.exists(DECISIONS_FILE):
-        try:
-            with open(DECISIONS_FILE, 'r', encoding='utf-8') as f: FEEDBACK_DB = json.load(f)
-        except: pass
+    # JSON dosyalarını yükle
+    for file_path, var_name in [
+        (DECISIONS_FILE, 'FEEDBACK_DB'), (LOGS_FILE, 'ACCESS_LOGS'),
+        (ANNOUNCEMENTS_FILE, 'ANNOUNCEMENTS'), (MESSAGES_FILE, 'MESSAGES'),
+        (PASSWORDS_FILE, 'PASSWORDS_DB')
+    ]:
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    globals()[var_name] = json.load(f)
+            except: pass
 
-    if os.path.exists(LOGS_FILE):
-        try:
-            with open(LOGS_FILE, 'r', encoding='utf-8') as f: ACCESS_LOGS = json.load(f)
-        except: pass
-
-    if os.path.exists(ANNOUNCEMENTS_FILE):
-        try:
-            with open(ANNOUNCEMENTS_FILE, 'r', encoding='utf-8') as f: ANNOUNCEMENTS = json.load(f)
-        except: pass
-    
-    if os.path.exists(MESSAGES_FILE):
-        try:
-            with open(MESSAGES_FILE, 'r', encoding='utf-8') as f: MESSAGES = json.load(f)
-        except: pass
-    
-    if os.path.exists(PASSWORDS_FILE):
-        try:
-            with open(PASSWORDS_FILE, 'r', encoding='utf-8') as f: PASSWORDS_DB = json.load(f)
-        except: pass
-
+    # Akademisyen verilerini yükle
     try:
         path = os.path.join(BASE_DIR, 'academicians_merged.json')
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            for p in data:
-                if p.get("Fullname"):
-                    key_name = p["Fullname"].strip().upper()
-                    p["Image"] = None; p["Phone"] = "-"
-                    ACADEMICIANS_BY_NAME[key_name] = p
-                if p.get("Email"):
-                    key_email = p["Email"].strip().lower()
-                    ACADEMICIANS_BY_EMAIL[key_email] = p
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                for p in data:
+                    if p.get("Fullname"):
+                        ACADEMICIANS_BY_NAME[p["Fullname"].strip().upper()] = p
+                    if p.get("Email"):
+                        ACADEMICIANS_BY_EMAIL[p["Email"].strip().lower()] = p
     except: pass
 
-    try:
-        path = os.path.join(BASE_DIR, 'web_data.json')
-        with open(path, 'r', encoding='utf-8') as f:
-            web_data = json.load(f)
-            for w in web_data:
-                email = w.get("Email", "").strip().lower()
-                if email in ACADEMICIANS_BY_EMAIL:
-                    t = ACADEMICIANS_BY_EMAIL[email]
-                    t["Image"] = w.get("Image_Path"); t["Phone"] = w.get("Work_Phone", "-")
-                    if t.get("Fullname"):
-                        nk = t["Fullname"].strip().upper()
-                        if nk in ACADEMICIANS_BY_NAME:
-                            ACADEMICIANS_BY_NAME[nk]["Image"] = w.get("Image_Path")
-                            ACADEMICIANS_BY_NAME[nk]["Phone"] = w.get("Work_Phone", "-")
-    except: pass
-
+    # Proje verilerini yükle
     try:
         path = os.path.join(BASE_DIR, 'eu_projects_merged_tum.json')
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            for p in data:
-                pid = str(p.get("project_id", "")).strip()
-                if pid: PROJECTS_DB[pid] = p
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                for p in data:
+                    pid = str(p.get("project_id", "")).strip()
+                    if pid: PROJECTS_DB[pid] = p
     except: pass
-
+    
+    # Eşleşme verilerini yükle (n8n)
     try:
         path = os.path.join(BASE_DIR, 'n8n_akademisyen_proje_onerileri.json')
-        with open(path, 'r', encoding='utf-8') as f:
-            raw = json.load(f)
-            combined = []
-            if isinstance(raw, dict):
-                for v in raw.values():
-                    if isinstance(v, list): combined.extend(v)
-            elif isinstance(raw, list): combined = raw
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                raw = json.load(f)
+                combined = []
+                if isinstance(raw, dict):
+                    for v in raw.values():
+                        if isinstance(v, list): combined.extend(v)
+                elif isinstance(raw, list): combined = raw
 
-            last_valid = ""
-            for item in combined:
-                name = item.get('data') or item.get('academician_name')
-                pid = str(item.get('Column3') or item.get('project_id') or "")
-                if name == "academician_name" or pid == "project_id": continue
-                if name and len(str(name)) > 2: last_valid = name.strip()
-                if pid and last_valid:
-                    MATCHES_DB.append({
-                        "name": last_valid, "projId": pid,
-                        "score": int(item.get('Column7') or item.get('score') or 0),
-                        "reason": item.get('Column6') or item.get('reason') or ""
-                    })
+                for item in combined:
+                    name = item.get('data') or item.get('academician_name')
+                    pid = str(item.get('Column3') or item.get('project_id') or "")
+                    if name and pid and name != "academician_name":
+                         MATCHES_DB.append({
+                            "name": name.strip(), "projId": pid,
+                            "score": int(item.get('Column7') or item.get('score') or 0),
+                            "reason": item.get('Column6') or item.get('reason') or ""
+                        })
     except: pass
 
 load_data()
-
 
 # 3. YARDIMCI FONKSİYONLAR
 def save_json(file_path, data):
@@ -165,24 +129,28 @@ def save_json(file_path, data):
 def log_access(name, role, action):
     try:
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        entry = {"timestamp": now, "name": name, "role": role, "action": action}
-        ACCESS_LOGS.insert(0, entry)
+        ACCESS_LOGS.insert(0, {"timestamp": now, "name": name, "role": role, "action": action})
         if len(ACCESS_LOGS) > 500: ACCESS_LOGS.pop()
         save_json(LOGS_FILE, ACCESS_LOGS)
     except: pass
 
-
-# 4. YENİ REACT SUNMA FONKSİYONU (DÜZELTİLDİ)
+# --- AKILLI DOSYA SUNUCUSU (LOGO SORUNU İÇİN) ---
 def serve_react(request, resource=""):
+    # 1. Eğer istenen şey 'dist' içinde gerçek bir dosyaysa (logo.png, vite.svg gibi)
+    if resource:
+        file_path = os.path.join(DIST_DIR, resource)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            # Dosyayı sun
+            return FileResponse(open(file_path, 'rb'))
+    
+    # 2. Değilse, React uygulamasını (index.html) sun
     try:
-        # dist/index.html dosyasını bulmaya çalışır
         path = os.path.join(DIST_DIR, 'index.html')
         return FileResponse(open(path, 'rb'))
     except FileNotFoundError:
-        return HttpResponse(f"HATA: dist/index.html bulunamadı.<br>BASE_DIR: {BASE_DIR}<br>DIST_DIR: {DIST_DIR}", status=404)
+        return HttpResponse("Sistem yükleniyor... (Build bekleniyor)", status=503)
 
-
-# API FONKSİYONLARI (AYNEN KORUNDU)
+# API FONKSİYONLARI
 def serve_image(request, image_name):
     try: return FileResponse(open(os.path.join(BASE_DIR, 'images', image_name), 'rb'))
     except: return HttpResponse("Resim yok", 404)
@@ -198,19 +166,24 @@ def api_login(request):
             d = json.loads(request.body)
             u = d.get('username', '').strip()
             p = d.get('password', '').strip()
+            
+            # Admin Girişi
             if u == "admin" and p == "12345":
                 log_access("Admin", "Yönetici", "Giriş Başarılı")
                 return JsonResponse({"status": "success", "role": "admin", "name": "Yönetici"})
+            
+            # Akademisyen Girişi
             acc = ACADEMICIANS_BY_EMAIL.get(u.lower())
             if acc:
                 stored_pass = PASSWORDS_DB.get(u.lower())
                 default_pass = u.lower().split('@')[0]
                 valid_pass = stored_pass if stored_pass else default_pass
+                
                 if p == valid_pass:
                     log_access(acc["Fullname"], "Akademisyen", "Giriş Başarılı")
                     return JsonResponse({"status": "success", "role": "academician", "name": acc["Fullname"]})
-            log_access(u, "Bilinmiyor", "Hatalı Giriş Denemesi")
-            return JsonResponse({"status": "error"}, status=401)
+            
+            return JsonResponse({"status": "error", "message": "Kullanıcı adı veya şifre hatalı"}, status=401)
         except Exception as e:
             return JsonResponse({"status": "error", "message": str(e)}, status=400)
     return JsonResponse({}, status=405)
@@ -416,13 +389,11 @@ def api_top_projects(request):
         })
     return JsonResponse(top, safe=False)
 
-
-# --- DÜZELTİLEN URL PATTERNS ---
 urlpatterns = [
-    # 1. Önce Assets (JS/CSS) dosyalarını sun (Beyaz ekran çözümü)
+    # 1. Assets (JS/CSS)
     re_path(r'^assets/(?P<path>.*)$', serve, {'document_root': ASSETS_DIR}),
     
-    # 2. Resimler
+    # 2. Resim Klasörleri
     path('images/<str:image_name>', serve_image),
     path('akademisyen_fotograflari/<str:image_name>', serve_academician_photo),
 
@@ -438,8 +409,8 @@ urlpatterns = [
     path('api/messages/', api_messages),
     path('api/change-password/', api_change_password),
     
-    # 4. EN SONA: React Uygulaması (Catch-all)
-    re_path(r'^.*$', serve_react),
+    # 4. EN SONA: React Uygulaması ve Root Dosyaları (Logo, Favicon vs.)
+    re_path(r'^(?P<resource>.*)$', serve_react),
 ]
 
 application = get_wsgi_application()
