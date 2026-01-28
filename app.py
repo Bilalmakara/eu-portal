@@ -14,7 +14,7 @@ from django.views.static import serve
 
 # 1. PROJE AYARLARI
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DIST_DIR = os.path.join(BASE_DIR, 'dist')  # <--- KRİTİK AYAR
+DIST_DIR = os.path.join(BASE_DIR, 'dist')
 ASSETS_DIR = os.path.join(DIST_DIR, 'assets')
 
 # Dosya Yolları
@@ -23,6 +23,14 @@ LOGS_FILE = os.path.join(BASE_DIR, 'access_logs.json')
 ANNOUNCEMENTS_FILE = os.path.join(BASE_DIR, 'announcements.json')
 MESSAGES_FILE = os.path.join(BASE_DIR, 'messages.json')
 PASSWORDS_FILE = os.path.join(BASE_DIR, 'passwords.json')
+
+# MIME TYPE AYARLARI (Linux sunucular için hayati önem taşır)
+mimetypes.init()
+mimetypes.add_type("application/javascript", ".js", True)
+mimetypes.add_type("text/css", ".css", True)
+mimetypes.add_type("image/svg+xml", ".svg", True)
+mimetypes.add_type("image/png", ".png", True)
+mimetypes.add_type("image/jpeg", ".jpg", True)
 
 if not settings.configured:
     settings.configure(
@@ -44,7 +52,7 @@ if not settings.configured:
         STATIC_URL='/static/',
     )
 
-# 2. GLOBAL VERİTABANI VE YÜKLEME
+# 2. GLOBAL VERİTABANI
 ACADEMICIANS_BY_NAME = {}
 ACADEMICIANS_BY_EMAIL = {}
 PROJECTS_DB = {}
@@ -124,32 +132,33 @@ def log_access(name, role, action):
         save_json(LOGS_FILE, ACCESS_LOGS)
     except: pass
 
-# --- AKILLI DOSYA SUNUCUSU ---
+# --- GELİŞMİŞ DOSYA SUNUCUSU (MIME TYPE FIX) ---
 def serve_react(request, resource=""):
-    # 1. Önce 'dist' klasörüne bak (vite.svg, logo vb. için)
-    if resource:
-        file_path = os.path.join(DIST_DIR, resource)
-        if os.path.exists(file_path) and os.path.isfile(file_path):
-            return FileResponse(open(file_path, 'rb'))
+    # 1. Dosya yolu belirle
+    path = os.path.join(DIST_DIR, resource) if resource else os.path.join(DIST_DIR, 'index.html')
+    
+    # 2. Dosya varsa sun (Doğru MIME Type ile)
+    if os.path.exists(path) and os.path.isfile(path):
+        mime_type, _ = mimetypes.guess_type(path)
+        # Bazı sunucular JS/CSS tanımaz, elle düzeltiyoruz:
+        if path.endswith(".js"): mime_type = "application/javascript"
+        elif path.endswith(".css"): mime_type = "text/css"
+        elif path.endswith(".svg"): mime_type = "image/svg+xml"
+        
+        return FileResponse(open(path, 'rb'), content_type=mime_type)
             
-    # 2. Bulamazsa 'index.html' gönder (Siteyi aç)
+    # 3. Dosya yoksa index.html gönder (SPA Yönlendirmesi)
     try:
         return FileResponse(open(os.path.join(DIST_DIR, 'index.html'), 'rb'))
     except FileNotFoundError:
-        return HttpResponse(f"HATA: dist/index.html bulunamadı.<br>Mevcut Konum: {os.getcwd()}", status=503)
-
-def serve_image(request, image_name):
-    # Ana dizindeki images klasörüne bakar
-    path = os.path.join(BASE_DIR, 'images', image_name)
-    if os.path.exists(path): return FileResponse(open(path, 'rb'))
-    return HttpResponse("Resim bulunamadı", 404)
+        return HttpResponse("Sistem yükleniyor... Lütfen bekleyiniz.", status=503)
 
 def serve_academician_photo(request, image_name):
     path = os.path.join(BASE_DIR, 'akademisyen_fotograflari', image_name)
-    if os.path.exists(path): return FileResponse(open(path, 'rb'))
-    return HttpResponse("Fotoğraf bulunamadı", 404)
+    if os.path.exists(path): return FileResponse(open(path, 'rb'), content_type="image/jpeg")
+    return HttpResponse("Foto yok", 404)
 
-# --- API ENDPOINTLERİ (SLASH DUYARLILIĞI KALDIRILDI) ---
+# --- API ENDPOINTLERİ ---
 @csrf_exempt
 def api_login(request):
     if request.method == 'POST':
@@ -337,13 +346,13 @@ def api_change_password(request):
 # --- URL YÖNLENDİRMELERİ ---
 urlpatterns = [
     # 1. Assets (JS/CSS)
-    re_path(r'^assets/(?P<path>.*)$', serve, {'document_root': ASSETS_DIR}),
+    re_path(r'^assets/(?P<path>.*)$', serve_react),
     
-    # 2. Resimler (images klasöründen)
-    path('images/<str:image_name>', serve_image),
+    # 2. Resimler
+    path('images/<str:image_name>', lambda r, image_name: FileResponse(open(os.path.join(BASE_DIR, 'images', image_name), 'rb')) if os.path.exists(os.path.join(BASE_DIR, 'images', image_name)) else HttpResponse(status=404)),
     path('akademisyen_fotograflari/<str:image_name>', serve_academician_photo),
 
-    # 3. API'ler (Soru işareti sayesinde / olmasa da çalışır)
+    # 3. API'ler
     re_path(r'^api/login/?$', api_login),
     re_path(r'^api/logout/?$', api_logout),
     re_path(r'^api/admin-data/?$', api_list_admin),
