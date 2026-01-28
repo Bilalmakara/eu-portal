@@ -7,7 +7,7 @@ from collections import Counter
 from django.conf import settings
 from django.core.management import execute_from_command_line
 from django.core.wsgi import get_wsgi_application
-from django.urls import path, re_path
+from django.urls import re_path
 from django.http import JsonResponse, HttpResponse, FileResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -15,8 +15,13 @@ from django.views.decorators.csrf import csrf_exempt
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DIST_DIR = os.path.join(BASE_DIR, 'dist')
 IMAGES_DIR = os.path.join(BASE_DIR, 'images')
-# Akademisyen fotoğrafları klasörü
 PHOTOS_DIR = os.path.join(BASE_DIR, 'akademisyen_fotograflari')
+
+# Windows/Linux MIME Tipi Uyumluluğu
+mimetypes.init()
+mimetypes.add_type("application/javascript", ".js", True)
+mimetypes.add_type("text/css", ".css", True)
+mimetypes.add_type("image/svg+xml", ".svg", True)
 
 FILES = {
     'decisions': 'decisions.json', 'logs': 'access_logs.json',
@@ -29,7 +34,8 @@ DB = {'ACADEMICIANS_BY_NAME': {}, 'ACADEMICIANS_BY_EMAIL': {}, 'PROJECTS': {}, '
 
 if not settings.configured:
     settings.configure(
-        DEBUG=True, SECRET_KEY='gizli', ROOT_URLCONF=__name__, ALLOWED_HOSTS=['*'],
+        DEBUG=True, SECRET_KEY='gizli-anahtar-super-guvenli', ROOT_URLCONF=__name__,
+        ALLOWED_HOSTS=['*'],
         INSTALLED_APPS=['django.contrib.staticfiles','django.contrib.contenttypes','django.contrib.auth','corsheaders'],
         MIDDLEWARE=['corsheaders.middleware.CorsMiddleware','django.middleware.common.CommonMiddleware'],
         CORS_ALLOW_ALL_ORIGINS=True,
@@ -37,6 +43,7 @@ if not settings.configured:
 
 # --- 2. VERİ YÜKLEME ---
 def load_data():
+    print("--- VERİLER YÜKLENİYOR ---")
     for k, v in FILES.items():
         path = os.path.join(BASE_DIR, v)
         if os.path.exists(path):
@@ -60,81 +67,77 @@ def load_data():
                     elif k == 'announcements': DB['ANNOUNCEMENTS'] = data
                     elif k == 'messages': DB['MESSAGES'] = data
                     elif k == 'passwords': DB['PASSWORDS'] = data
-            except: pass
+            except Exception as e: print(f"HATA ({k}): {e}")
 load_data()
 
-# --- 3. AKILLI DOSYA BULUCU (HEM İSİM HEM YOL DÜZELTİR) ---
-def serve_smart_file(request, path, folder):
-    # 1. Klasör var mı kontrol et
-    if not os.path.exists(folder):
-        return HttpResponse(f"KLASOR YOK: {folder}", status=404)
-
-    # 2. İstenen dosya ismini (yoldan temizle) al. Örn: "klasor/Ahmet.jpg" -> "Ahmet.jpg"
-    filename = os.path.basename(path)
-    
-    # 3. Klasördeki dosyaları listele ve eşleşme ara (Büyük/Küçük harf duyarsız)
+# --- 3. YARDIMCI FONKSİYONLAR ---
+def save_json(key, data):
     try:
-        all_files = os.listdir(folder)
-    except:
-        return HttpResponse("Klasör okunamadı", status=500)
+        with open(os.path.join(BASE_DIR, FILES[key]), 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False, indent=4)
+    except: pass
 
-    # Tam eşleşme veya küçük harf eşleşmesi ara
-    found_file = None
-    for f in all_files:
-        if f.lower() == filename.lower():
-            found_file = f
-            break
+def log_access(name, role, action):
+    DB['LOGS'].insert(0, {"timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "name": name, "role": role, "action": action})
+    save_json('logs', DB['LOGS'])
+
+# --- 4. AKILLI DOSYA SUNUCUSU (RESİMLER İÇİN) ---
+def serve_smart_file(request, path, folder):
+    # 1. Dosya yolu temizliği (Güvenlik ve doğruluk için)
+    clean_path = path.lstrip('/')
     
-    if found_file:
-        full_path = os.path.join(folder, found_file)
+    # 2. Tam eşleşme ara
+    full_path = os.path.join(folder, clean_path)
+    if os.path.exists(full_path):
         mtype, _ = mimetypes.guess_type(full_path)
-        return FileResponse(open(full_path, 'rb'), content_type=mtype or "application/octet-stream")
+        return FileResponse(open(full_path, 'rb'), content_type=mtype)
 
-    return HttpResponse(f"DOSYA YOK: {filename} (Klasörde {len(all_files)} dosya var)", status=404)
-
-# --- 4. DEBUG ENDPOINT (DOSYALARI LİSTELE) ---
-def check_files_view(request):
-    report = {
-        "DURUM": "Aktif",
-        "KLASORLER": {
-            "PHOTOS_DIR": PHOTOS_DIR,
-            "IMAGES_DIR": IMAGES_DIR
-        },
-        "DOSYA_LISTESI": {}
-    }
+    # 3. Bulamazsa klasördeki dosya isimlerini tara (Büyük/Küçük harf duyarsız)
+    filename = os.path.basename(clean_path).lower()
+    if os.path.exists(folder):
+        for f in os.listdir(folder):
+            if f.lower() == filename:
+                real_path = os.path.join(folder, f)
+                mtype, _ = mimetypes.guess_type(real_path)
+                return FileResponse(open(real_path, 'rb'), content_type=mtype)
     
-    # Fotoğraflar klasöründeki ilk 20 dosya
-    if os.path.exists(PHOTOS_DIR):
-        files = os.listdir(PHOTOS_DIR)
-        report["DOSYA_LISTESI"]["akademisyen_fotograflari"] = {
-            "toplam_sayi": len(files),
-            "ornekler": files[:20] # İlk 20 tanesini göster
-        }
-    else:
-        report["DOSYA_LISTESI"]["akademisyen_fotograflari"] = "KLASÖR BULUNAMADI!"
+    return HttpResponse(status=404)
 
-    # Images klasörü
-    if os.path.exists(IMAGES_DIR):
-        report["DOSYA_LISTESI"]["images"] = os.listdir(IMAGES_DIR)
-    else:
-        report["DOSYA_LISTESI"]["images"] = "KLASÖR BULUNAMADI!"
+# --- 5. REACT SUNUCUSU (BEYAZ EKRAN ÇÖZÜMÜ) ---
+def serve_react(request, resource=""):
+    # Eğer kaynak isteniyorsa (css, js, png vb.)
+    if resource and (resource.startswith("assets/") or "." in resource):
+        # Dist klasöründe ara
+        path = os.path.join(DIST_DIR, resource)
+        if os.path.exists(path):
+            mtype, _ = mimetypes.guess_type(path)
+            return FileResponse(open(path, 'rb'), content_type=mtype)
+    
+    # Diğer tüm durumlarda index.html döndür (SPA Router için şart)
+    try:
+        return FileResponse(open(os.path.join(DIST_DIR, 'index.html'), 'rb'))
+    except FileNotFoundError:
+        return HttpResponse("Sistem yükleniyor... (Lütfen 1 dakika sonra yenileyin)", status=503)
 
-    return JsonResponse(report, json_dumps_params={'indent': 4})
-
-# --- 5. API'LER ---
+# --- 6. API ENDPOINTLERİ ---
 @csrf_exempt
 def api_login(request):
     try:
         d = json.loads(request.body)
         u, p = d.get('username', '').strip().lower(), d.get('password', '').strip()
-        if u == "admin" and p == "12345": return JsonResponse({"status": "success", "role": "admin", "name": "Yönetici"})
+        
+        if u == "admin" and p == "12345":
+            log_access("Admin", "Yönetici", "Giriş Başarılı")
+            return JsonResponse({"status": "success", "role": "admin", "name": "Yönetici"})
+        
         if u in DB['ACADEMICIANS_BY_EMAIL']:
             real = DB['PASSWORDS'].get(u, u.split('@')[0])
             if p == real:
                 acc = DB['ACADEMICIANS_BY_EMAIL'][u]
+                log_access(acc.get("Fullname"), "Akademisyen", "Giriş Başarılı")
                 return JsonResponse({"status": "success", "role": "academician", "name": acc.get("Fullname")})
-        return JsonResponse({"status": "error", "message": "Hatalı Giriş"}, status=401)
-    except: return JsonResponse({}, 400)
+        
+        return JsonResponse({"status": "error", "message": "Hatalı Kullanıcı Adı veya Şifre"}, status=401)
+    except Exception as e: return JsonResponse({"error": str(e)}, 400)
 
 @csrf_exempt
 def api_profile(request):
@@ -142,62 +145,178 @@ def api_profile(request):
         name = json.loads(request.body).get('name')
         raw = DB['ACADEMICIANS_BY_NAME'].get(name.upper(), {})
         
-        # RESİM YOLU DÜZELTME (Sadece dosya ismini alıyoruz)
+        # Fotoğraf yolu oluşturma (Sadece dosya ismini alıp önüne klasörü ekliyoruz)
         img_raw = raw.get("Image", "")
         img_final = None
         if img_raw:
             if img_raw.startswith("http"): img_final = img_raw
             else:
-                # Veritabanında "akademisyen_fotograflari/Ahmet.jpg" yazsa bile
-                # biz sadece "Ahmet.jpg" kısmını alıp kendi yolumuzu ekliyoruz.
                 filename = os.path.basename(img_raw)
                 img_final = f"/akademisyen_fotograflari/{filename}"
 
-        # Projeleri filtrele
-        matches = [m for m in DB['MATCHES'] if m["name"] == name]
+        # Projeleri Bul ve Zenginleştir
+        my_matches = [m for m in DB['MATCHES'] if m["name"] == name]
         projects = []
-        for m in matches:
+        for m in my_matches:
             pd = DB['PROJECTS'].get(m["projId"], {})
-            stat = "waiting" # Basitleştirildi
+            
+            # Karar durumu
+            stat = "waiting"
+            note = ""
+            rating = 0
+            for fb in DB['FEEDBACK']:
+                if fb["academician"] == name and fb["projId"] == m["projId"]:
+                    stat = fb["decision"]; note = fb.get("note", ""); rating = fb.get("rating", 0); break
+            
+            # İşbirlikçiler
+            collabs = []
+            for fb in DB['FEEDBACK']:
+                if fb["projId"] == m["projId"] and fb["decision"] == "accepted" and fb["academician"] != name:
+                    collabs.append(fb["academician"])
+
             projects.append({
-                "id": m["projId"], "title": pd.get("title") or f"Proje-{m['projId']}", 
-                "score": m["score"], "status": pd.get("status", "-"), 
-                "budget": pd.get("overall_budget", "-"), "decision": stat, "url": pd.get("url", "#")
+                "id": m["projId"], 
+                "title": pd.get("title") or pd.get("acronym") or f"Proje-{m['projId']}", 
+                "score": m["score"], 
+                "status": pd.get("status", "-"), 
+                "budget": pd.get("overall_budget", "-"), 
+                "objective": pd.get("objective", ""),
+                "decision": stat, 
+                "note": note,
+                "rating": rating,
+                "collaborators": collabs,
+                "url": pd.get("url", "#")
             })
+        
         projects.sort(key=lambda x: x['score'], reverse=True)
         
         return JsonResponse({
             "profile": {
                 "Fullname": name, "Email": raw.get("Email"), "Phone": raw.get("Phone"), 
                 "Title": raw.get("Title", "Akademisyen"), "Image": img_final, 
+                "Field": raw.get("Field", "-"),
                 "Duties": raw.get("Duties", [])
             },
             "projects": projects
         })
     except Exception as e: return JsonResponse({"error": str(e)}, 500)
 
-# Diğer API placeholderları
-def api_dummy(r): return JsonResponse({})
-def serve_react(r, resource=""):
-    try: return FileResponse(open(os.path.join(DIST_DIR, 'index.html'), 'rb'))
-    except: return HttpResponse("Yükleniyor...", status=503)
+@csrf_exempt
+def api_project_decision(request):
+    try:
+        d = json.loads(request.body)
+        acc, pid, dec = d.get("academician"), d.get("projId"), d.get("decision")
+        found = False
+        for item in DB['FEEDBACK']:
+            if item["academician"] == acc and item["projId"] == pid:
+                item.update({"decision": dec, "note": d.get("note", ""), "rating": int(d.get("rating", 0)), "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")})
+                found = True; break
+        if not found:
+            DB['FEEDBACK'].append({"academician": acc, "projId": pid, "projectTitle": d.get("projectTitle"), "decision": dec, "note": d.get("note", ""), "rating": int(d.get("rating", 0)), "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")})
+        save_json('decisions', DB['FEEDBACK'])
+        return JsonResponse({"status": "success"})
+    except: return JsonResponse({"status": "error"}, 400)
 
+# Admin ve Diğer API'ler
+def api_list_admin(request):
+    stats = {}
+    for m in DB['MATCHES']:
+        nk = m["name"]
+        if nk not in stats:
+            det = DB['ACADEMICIANS_BY_NAME'].get(nk.upper(), {})
+            img = det.get("Image")
+            if img and not img.startswith("http"): img = f"akademisyen_fotograflari/{os.path.basename(img)}"
+            stats[nk] = {"name": nk, "email": det.get("Email", "-"), "project_count": 0, "best_score": 0, "image": img}
+        stats[nk]["project_count"] += 1
+        if m["score"] > stats[nk]["best_score"]: stats[nk]["best_score"] = m["score"]
+    return JsonResponse({"academicians": list(stats.values()), "feedbacks": DB['FEEDBACK'], "logs": DB['LOGS'], "announcements": DB['ANNOUNCEMENTS']}, safe=False)
+
+def api_top_projects(request):
+    cnt = Counter(m['projId'] for m in DB['MATCHES']).most_common(50)
+    top = []
+    for pid, c in cnt:
+        pd = DB['PROJECTS'].get(pid, {})
+        top.append({"id": pid, "count": c, "title": pd.get("title") or f"Proje-{pid}", "budget": pd.get("overall_budget", "-"), "status": pd.get("status", "-"), "url": pd.get("url", "#")})
+    return JsonResponse(top, safe=False)
+
+def api_network_graph(request):
+    user = request.GET.get('user')
+    if not user: return JsonResponse({"nodes": [], "links": []})
+    u_det = DB['ACADEMICIANS_BY_NAME'].get(user.upper(), {})
+    u_img = u_det.get("Image")
+    if u_img and not u_img.startswith("http"): u_img = f"akademisyen_fotograflari/{os.path.basename(u_img)}"
+    nodes = [{"id": user, "isCenter": True, "img": u_img}]
+    links = []
+    collaborators = set()
+    my_projects = {fb["projId"] for fb in DB['FEEDBACK'] if fb["academician"] == user and fb["decision"] == "accepted"}
+    for fb in DB['FEEDBACK']:
+        if fb["projId"] in my_projects and fb["academician"] != user and fb["decision"] == "accepted": collaborators.add(fb["academician"])
+    for col in collaborators:
+        c_det = DB['ACADEMICIANS_BY_NAME'].get(col.upper(), {})
+        c_img = c_det.get("Image")
+        if c_img and not c_img.startswith("http"): c_img = f"akademisyen_fotograflari/{os.path.basename(c_img)}"
+        nodes.append({"id": col, "isCenter": False, "img": c_img})
+        links.append({"source": user, "target": col})
+    return JsonResponse({"nodes": nodes, "links": links}, safe=False)
+
+@csrf_exempt
+def api_announcements(request):
+    if request.method == 'POST':
+        d = json.loads(request.body)
+        if d.get("action") == "delete": DB['ANNOUNCEMENTS'].pop(d.get("index"))
+        else: DB['ANNOUNCEMENTS'].insert(0, {"title": d.get("title"), "content": d.get("content"), "date": datetime.datetime.now().strftime("%d.%m.%Y")})
+        save_json('announcements', DB['ANNOUNCEMENTS'])
+        return JsonResponse({"status": "success"})
+    return JsonResponse(DB['ANNOUNCEMENTS'], safe=False)
+
+@csrf_exempt
+def api_messages(request):
+    if request.method == 'POST':
+        d = json.loads(request.body)
+        if d.get("action") == "send":
+            DB['MESSAGES'].insert(0, {"id": len(DB['MESSAGES'])+1, "sender": d.get("sender"), "receiver": d.get("receiver"), "content": d.get("content"), "timestamp": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")})
+            save_json('messages', DB['MESSAGES'])
+            return JsonResponse({"status": "success"})
+        elif d.get("action") == "list":
+            if d.get("role") == "admin": return JsonResponse(DB['MESSAGES'], safe=False)
+            return JsonResponse([m for m in DB['MESSAGES'] if m["sender"]==d.get("user") or m["receiver"]==d.get("user")], safe=False)
+    return JsonResponse([], safe=False)
+
+@csrf_exempt
+def api_change_password(request):
+    try:
+        d = json.loads(request.body)
+        DB['PASSWORDS'][d.get('email')] = d.get('newPassword')
+        save_json('passwords', DB['PASSWORDS'])
+        return JsonResponse({"status": "success"})
+    except: return JsonResponse({}, 400)
+
+@csrf_exempt
+def api_logout(request): return JsonResponse({"status": "success"})
+
+# --- 7. URL YÖNLENDİRMELERİ ---
 urlpatterns = [
-    # KONTROL SAYFASI
-    path('check-files/', check_files_view),
-    
-    # DOSYALAR (Regex ile her şeyi yakala)
+    # Fotoğraflar ve Resimler (Akıllı Arama)
     re_path(r'^images/(?P<path>.*)$', lambda r, path: serve_smart_file(r, path, IMAGES_DIR)),
     re_path(r'^akademisyen_fotograflari/(?P<path>.*)$', lambda r, path: serve_smart_file(r, path, PHOTOS_DIR)),
     
     # API
     re_path(r'^api/login/?$', api_login),
+    re_path(r'^api/logout/?$', api_logout),
     re_path(r'^api/profile/?$', api_profile),
-    re_path(r'^api/.*$', api_dummy),
+    re_path(r'^api/decision/?$', api_project_decision),
+    re_path(r'^api/admin-data/?$', api_list_admin),
+    re_path(r'^api/top-projects/?$', api_top_projects),
+    re_path(r'^api/network-graph/?$', api_network_graph),
+    re_path(r'^api/announcements/?$', api_announcements),
+    re_path(r'^api/messages/?$', api_messages),
+    re_path(r'^api/change-password/?$', api_change_password),
     
-    # REACT
+    # React (Catch-all en sonda)
     re_path(r'^(?P<resource>.*)$', serve_react),
 ]
 
 application = get_wsgi_application()
-if __name__ == "__main__": execute_from_command_line(sys.argv)
+
+if __name__ == "__main__":
+    execute_from_command_line(sys.argv)
