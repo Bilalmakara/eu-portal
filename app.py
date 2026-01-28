@@ -17,7 +17,7 @@ DIST_DIR = os.path.join(BASE_DIR, 'dist')
 IMAGES_DIR = os.path.join(BASE_DIR, 'images')
 PHOTOS_DIR = os.path.join(BASE_DIR, 'akademisyen_fotograflari')
 
-# Windows/Linux MIME Tipi Uyumluluğu
+# MIME Tipleri (Beyaz Ekran Sorunu İçin Kritik)
 mimetypes.init()
 mimetypes.add_type("application/javascript", ".js", True)
 mimetypes.add_type("text/css", ".css", True)
@@ -82,7 +82,7 @@ def log_access(name, role, action):
 
 # --- 4. AKILLI DOSYA SUNUCUSU (RESİMLER İÇİN) ---
 def serve_smart_file(request, path, folder):
-    # 1. Dosya yolu temizliği (Güvenlik ve doğruluk için)
+    # 1. Dosya yolu temizliği
     clean_path = path.lstrip('/')
     
     # 2. Tam eşleşme ara
@@ -92,6 +92,7 @@ def serve_smart_file(request, path, folder):
         return FileResponse(open(full_path, 'rb'), content_type=mtype)
 
     # 3. Bulamazsa klasördeki dosya isimlerini tara (Büyük/Küçük harf duyarsız)
+    # Örn: 'aayildirim.jpg' istenir ama sistemde 'AAYILDIRIM.JPG' varsa bulur.
     filename = os.path.basename(clean_path).lower()
     if os.path.exists(folder):
         for f in os.listdir(folder):
@@ -104,15 +105,14 @@ def serve_smart_file(request, path, folder):
 
 # --- 5. REACT SUNUCUSU (BEYAZ EKRAN ÇÖZÜMÜ) ---
 def serve_react(request, resource=""):
-    # Eğer kaynak isteniyorsa (css, js, png vb.)
-    if resource and (resource.startswith("assets/") or "." in resource):
-        # Dist klasöründe ara
+    # Eğer kaynak isteniyorsa (css, js, png vb.) ve dosya varsa gönder
+    if resource:
         path = os.path.join(DIST_DIR, resource)
         if os.path.exists(path):
             mtype, _ = mimetypes.guess_type(path)
             return FileResponse(open(path, 'rb'), content_type=mtype)
     
-    # Diğer tüm durumlarda index.html döndür (SPA Router için şart)
+    # Diğer tüm durumlarda (sayfa yenileme vb.) index.html gönder
     try:
         return FileResponse(open(os.path.join(DIST_DIR, 'index.html'), 'rb'))
     except FileNotFoundError:
@@ -145,22 +145,21 @@ def api_profile(request):
         name = json.loads(request.body).get('name')
         raw = DB['ACADEMICIANS_BY_NAME'].get(name.upper(), {})
         
-        # Fotoğraf yolu oluşturma (Sadece dosya ismini alıp önüne klasörü ekliyoruz)
+        # Fotoğraf yolu oluşturma 
         img_raw = raw.get("Image", "")
         img_final = None
         if img_raw:
             if img_raw.startswith("http"): img_final = img_raw
             else:
+                # Sadece dosya ismini al, klasörü biz ekleriz
                 filename = os.path.basename(img_raw)
                 img_final = f"/akademisyen_fotograflari/{filename}"
 
-        # Projeleri Bul ve Zenginleştir
+        # Projeleri Bul
         my_matches = [m for m in DB['MATCHES'] if m["name"] == name]
         projects = []
         for m in my_matches:
             pd = DB['PROJECTS'].get(m["projId"], {})
-            
-            # Karar durumu
             stat = "waiting"
             note = ""
             rating = 0
@@ -168,7 +167,6 @@ def api_profile(request):
                 if fb["academician"] == name and fb["projId"] == m["projId"]:
                     stat = fb["decision"]; note = fb.get("note", ""); rating = fb.get("rating", 0); break
             
-            # İşbirlikçiler
             collabs = []
             for fb in DB['FEEDBACK']:
                 if fb["projId"] == m["projId"] and fb["decision"] == "accepted" and fb["academician"] != name:
@@ -176,7 +174,7 @@ def api_profile(request):
 
             projects.append({
                 "id": m["projId"], 
-                "title": pd.get("title") or pd.get("acronym") or f"Proje-{m['projId']}", 
+                "title": pd.get("title") or f"Proje-{m['projId']}", 
                 "score": m["score"], 
                 "status": pd.get("status", "-"), 
                 "budget": pd.get("overall_budget", "-"), 
