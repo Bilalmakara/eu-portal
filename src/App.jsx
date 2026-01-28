@@ -3,7 +3,8 @@ import axios from 'axios';
 import ForceGraph from 'force-graph';
 
 // --- API AYARLARI ---
-const API_BASE_URL = "http://127.0.0.1:8000";
+// ÖNEMLİ DÜZELTME: Burayı boş bıraktık. Böylece canlı sitede otomatik olarak doğru adresi alır.
+const API_BASE_URL = ""; 
 const api = axios.create({ baseURL: API_BASE_URL + "/api" });
 
 // --- YARDIMCI FONKSİYONLAR ---
@@ -199,6 +200,7 @@ const LoginPage = ({ onLogin }) => {
         <div className="h-screen login-bg flex flex-col justify-start items-center pt-24 px-4 overflow-y-auto">
             <div className="glass-panel p-10 rounded-2xl w-full max-w-md animate-[fadeIn_0.5s]">
                 <div className="text-center mb-8">
+                    {/* DÜZELTME: src başına boş string de gelse relatif yol çalışır */}
                     <img src={`${API_BASE_URL}/images/logo-tek.png`} className="h-24 mx-auto mb-4 object-contain drop-shadow-md" />
                     <h1 className="text-2xl font-bold text-slate-800 tracking-tight">ESTÜ Akademik Portal</h1>
                     <p className="text-sm text-slate-600 mt-1 font-medium">Proje Eşleştirme Sistemi</p>
