@@ -68,25 +68,25 @@ def load_data():
                 with open(FILES[key], 'r', encoding='utf-8') as f: DB[var_name] = json.load(f)
             except: pass
 
-    # Akademisyenler (BURASI DÜZELTİLDİ: except bloğu eklendi)
+    # Akademisyenler (HATA BURADAYDI, DÜZELTİLDİ)
     if os.path.exists(FILES['academicians']):
         try:
             with open(FILES['academicians'], 'r', encoding='utf-8') as f:
                 for p in json.load(f):
                     if p.get("Fullname"): DB['ACADEMICIANS_BY_NAME'][p["Fullname"].strip().upper()] = p
                     if p.get("Email"): DB['ACADEMICIANS_BY_EMAIL'][p["Email"].strip().lower()] = p
-        except: pass  # <--- BU SATIR EKSİKTİ, EKLENDİ
+        except: pass  # <--- BU SATIR EKLENDİ, ARTIK HATA VERMEYECEK
 
-    # Projeler (BURASI DÜZELTİLDİ: except bloğu eklendi)
+    # Projeler
     if os.path.exists(FILES['projects']):
         try:
             with open(FILES['projects'], 'r', encoding='utf-8') as f:
                 for p in json.load(f):
                     pid = str(p.get("project_id", "")).strip()
                     if pid: DB['PROJECTS'][pid] = p
-        except: pass # <--- BU SATIR EKLENDİ
+        except: pass # <--- EKLENDİ
 
-    # Eşleşmeler (BURASI DÜZELTİLDİ: except bloğu eklendi)
+    # Eşleşmeler
     if os.path.exists(FILES['matches']):
         try:
             with open(FILES['matches'], 'r', encoding='utf-8') as f:
@@ -106,7 +106,7 @@ def load_data():
                             "score": int(item.get('Column7') or item.get('score') or 0),
                             "reason": item.get('Column6') or item.get('reason') or ""
                         })
-        except: pass # <--- BU SATIR EKLENDİ
+        except: pass # <--- EKLENDİ
 
 load_data()
 
