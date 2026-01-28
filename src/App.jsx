@@ -201,7 +201,7 @@ const LoginPage = ({ onLogin }) => {
             <div className="glass-panel p-10 rounded-2xl w-full max-w-md animate-[fadeIn_0.5s]">
                 <div className="text-center mb-8">
                     {/* DÜZELTME: src başına boş string de gelse relatif yol çalışır */}
-                    <img src={`${API_BASE_URL}/images/logo-tek.png`} className="h-24 mx-auto mb-4 object-contain drop-shadow-md" />
+                    <img src="/images/logo.png" className="h-24 mx-auto mb-4 object-contain drop-shadow-md" />
                     <h1 className="text-2xl font-bold text-slate-800 tracking-tight">ESTÜ Akademik Portal</h1>
                     <p className="text-sm text-slate-600 mt-1 font-medium">Proje Eşleştirme Sistemi</p>
                 </div>
