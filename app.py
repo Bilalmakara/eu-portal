@@ -59,6 +59,7 @@ if not settings.configured:
 # 2. VERİLERİ YÜKLE
 def load_data():
     print("--- VERİLER YÜKLENİYOR ---")
+    
     # Basit JSON'lar
     for key, var_name in [('decisions', 'FEEDBACK'), ('logs', 'LOGS'), ('announcements', 'ANNOUNCEMENTS'), 
                           ('messages', 'MESSAGES'), ('passwords', 'PASSWORDS')]:
@@ -67,24 +68,47 @@ def load_data():
                 with open(FILES[key], 'r', encoding='utf-8') as f: DB[var_name] = json.load(f)
             except: pass
 
-    # Akademisyenler
+    # Akademisyenler (BURASI DÜZELTİLDİ: except bloğu eklendi)
     if os.path.exists(FILES['academicians']):
         try:
             with open(FILES['academicians'], 'r', encoding='utf-8') as f:
                 for p in json.load(f):
                     if p.get("Fullname"): DB['ACADEMICIANS_BY_NAME'][p["Fullname"].strip().upper()] = p
                     if p.get("Email"): DB['ACADEMICIANS_BY_EMAIL'][p["Email"].strip().lower()] = p
-    
-    # Projeler
+        except: pass  # <--- BU SATIR EKSİKTİ, EKLENDİ
+
+    # Projeler (BURASI DÜZELTİLDİ: except bloğu eklendi)
     if os.path.exists(FILES['projects']):
         try:
             with open(FILES['projects'], 'r', encoding='utf-8') as f:
                 for p in json.load(f):
                     pid = str(p.get("project_id", "")).strip()
                     if pid: DB['PROJECTS'][pid] = p
-        except: pass
+        except: pass # <--- BU SATIR EKLENDİ
 
-load_data() # Başlangıçta çalıştır
+    # Eşleşmeler (BURASI DÜZELTİLDİ: except bloğu eklendi)
+    if os.path.exists(FILES['matches']):
+        try:
+            with open(FILES['matches'], 'r', encoding='utf-8') as f:
+                raw = json.load(f)
+                combined = []
+                if isinstance(raw, dict):
+                    for v in raw.values():
+                        if isinstance(v, list): combined.extend(v)
+                elif isinstance(raw, list): combined = raw
+
+                for item in combined:
+                    name = item.get('data') or item.get('academician_name')
+                    pid = str(item.get('Column3') or item.get('project_id') or "")
+                    if name and pid and name != "academician_name":
+                        DB['MATCHES'].append({
+                            "name": name.strip(), "projId": pid,
+                            "score": int(item.get('Column7') or item.get('score') or 0),
+                            "reason": item.get('Column6') or item.get('reason') or ""
+                        })
+        except: pass # <--- BU SATIR EKLENDİ
+
+load_data()
 
 def save_json(file_path, data):
     try:
@@ -97,10 +121,9 @@ def log_access(name, role, action):
     if len(DB['LOGS']) > 500: DB['LOGS'].pop()
     save_json(FILES['logs'], DB['LOGS'])
 
-# 3. ÖZEL DOSYA SUNUCULARI (RESİMLER BURADAN GEÇECEK)
+# 3. ÖZEL DOSYA SUNUCULARI
 
 def serve_assets(request, path):
-    # React JS ve CSS dosyaları için
     file_path = os.path.join(ASSETS_DIR, path)
     if os.path.exists(file_path):
         mime_type, _ = mimetypes.guess_type(file_path)
@@ -113,7 +136,6 @@ def serve_logo_images(request, image_name):
     # 'images' klasöründeki dosyalar (LOGO BURADA - .png)
     file_path = os.path.join(IMAGES_DIR, image_name)
     if os.path.exists(file_path):
-        # Logolar genelde PNG'dir ama garanti olsun
         return FileResponse(open(file_path, 'rb'), content_type="image/png")
     return HttpResponse("Logo bulunamadı", status=404)
 
@@ -125,7 +147,6 @@ def serve_academician_photos(request, image_name):
     return HttpResponse("Fotoğraf bulunamadı", status=404)
 
 def serve_react_app(request, resource=""):
-    # Diğer her şey için index.html (Sayfa yenileyince 404 vermesin diye)
     try:
         return FileResponse(open(os.path.join(DIST_DIR, 'index.html'), 'rb'))
     except FileNotFoundError:
@@ -140,7 +161,7 @@ def api_login(request):
             d = json.loads(request.body)
             u = d.get('username', '').strip()
             p = d.get('password', '').strip()
-            print(f"LOGIN DENEMESİ: '{u}' şifre: '{p}'") # Render Loglarında görebilirsin
+            print(f"LOGIN DENEMESİ: '{u}' şifre: '{p}'")
 
             # Admin Girişi
             if u == "admin" and p == "12345":
@@ -158,11 +179,10 @@ def api_login(request):
             
             return JsonResponse({"status": "error", "message": "Hatalı Giriş"}, status=401)
         except Exception as e:
-            print(f"LOGIN HATASI: {e}")
             return JsonResponse({"error": str(e)}, status=400)
     return JsonResponse({}, status=405)
 
-# Diğer API'ler (Boş ama çalışır durumda)
+# Diğer API'ler
 @csrf_exempt
 def api_logout(request): return JsonResponse({"status": "success"})
 @csrf_exempt
@@ -186,14 +206,14 @@ def api_change_password(request):
     except: return JsonResponse({"error": "Hata"}, 400)
 
 
-# 5. URL YÖNLENDİRMELERİ (EN ÖNEMLİ KISIM)
+# 5. URL YÖNLENDİRMELERİ
 urlpatterns = [
-    # A. Dosyalar (React bunlara direkt erişir)
+    # A. Dosyalar
     re_path(r'^assets/(?P<path>.*)$', serve_assets),
     re_path(r'^images/(?P<image_name>.*)$', serve_logo_images),
     re_path(r'^akademisyen_fotograflari/(?P<image_name>.*)$', serve_academician_photos),
 
-    # B. API (Sonunda slash olsa da olmasa da kabul et: ? işareti)
+    # B. API
     re_path(r'^api/login/?$', api_login),
     re_path(r'^api/logout/?$', api_logout),
     re_path(r'^api/admin-data/?$', api_list_admin),
@@ -202,7 +222,7 @@ urlpatterns = [
     re_path(r'^api/messages/?$', api_messages),
     re_path(r'^api/change-password/?$', api_change_password),
 
-    # C. React Uygulaması (Geri kalan her şey buraya)
+    # C. React Uygulaması
     re_path(r'^.*$', serve_react_app),
 ]
 
