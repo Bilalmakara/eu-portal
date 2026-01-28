@@ -14,7 +14,7 @@ from django.views.static import serve
 
 # 1. PROJE AYARLARI
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DIST_DIR = os.path.join(BASE_DIR, 'dist')
+DIST_DIR = os.path.join(BASE_DIR, 'dist')  # <--- KRİTİK AYAR
 ASSETS_DIR = os.path.join(DIST_DIR, 'assets')
 
 # Dosya Yolları
@@ -124,45 +124,32 @@ def log_access(name, role, action):
         save_json(LOGS_FILE, ACCESS_LOGS)
     except: pass
 
-# --- ÖZEL KONTROL SAYFASI (SİSTEM DURUMU) ---
-def system_check(request):
-    files = os.listdir(BASE_DIR)
-    dist_files = os.listdir(DIST_DIR) if os.path.exists(DIST_DIR) else "DIST YOK"
-    
-    status = f"""
-    <h1>Sistem Kontrol Paneli</h1>
-    <hr>
-    <h3>Veritabanı Durumu:</h3>
-    <ul>
-        <li>Akademisyen Sayısı: {len(ACADEMICIANS_BY_EMAIL)}</li>
-        <li>Şifre Kayıtları: {len(PASSWORDS_DB)}</li>
-        <li>Projeler: {len(PROJECTS_DB)}</li>
-        <li>Mesajlar: {len(MESSAGES)}</li>
-    </ul>
-    <hr>
-    <h3>Dosya Sistemi:</h3>
-    <ul>
-        <li><b>Ana Dizin:</b> {files}</li>
-        <li><b>Dist Klasörü:</b> {dist_files}</li>
-    </ul>
-    """
-    return HttpResponse(status)
-
-# --- REACT VE DOSYA SUNUCUSU ---
+# --- AKILLI DOSYA SUNUCUSU ---
 def serve_react(request, resource=""):
-    # 1. Eğer istenen şey 'dist' içinde gerçek bir dosyaysa (logo.png, vite.svg gibi)
+    # 1. Önce 'dist' klasörüne bak (vite.svg, logo vb. için)
     if resource:
         file_path = os.path.join(DIST_DIR, resource)
         if os.path.exists(file_path) and os.path.isfile(file_path):
             return FileResponse(open(file_path, 'rb'))
             
-    # 2. Değilse, React uygulamasını (index.html) sun
+    # 2. Bulamazsa 'index.html' gönder (Siteyi aç)
     try:
         return FileResponse(open(os.path.join(DIST_DIR, 'index.html'), 'rb'))
     except FileNotFoundError:
-        return HttpResponse("Sistem yükleniyor... Lütfen bekleyiniz.", status=503)
+        return HttpResponse(f"HATA: dist/index.html bulunamadı.<br>Mevcut Konum: {os.getcwd()}", status=503)
 
-# --- API ENDPOINTLERİ ---
+def serve_image(request, image_name):
+    # Ana dizindeki images klasörüne bakar
+    path = os.path.join(BASE_DIR, 'images', image_name)
+    if os.path.exists(path): return FileResponse(open(path, 'rb'))
+    return HttpResponse("Resim bulunamadı", 404)
+
+def serve_academician_photo(request, image_name):
+    path = os.path.join(BASE_DIR, 'akademisyen_fotograflari', image_name)
+    if os.path.exists(path): return FileResponse(open(path, 'rb'))
+    return HttpResponse("Fotoğraf bulunamadı", 404)
+
+# --- API ENDPOINTLERİ (SLASH DUYARLILIĞI KALDIRILDI) ---
 @csrf_exempt
 def api_login(request):
     if request.method == 'POST':
@@ -319,33 +306,44 @@ def api_network_graph(request):
 @csrf_exempt
 def api_announcements(request): return JsonResponse(ANNOUNCEMENTS, safe=False)
 @csrf_exempt
-def api_messages(request): return JsonResponse(MESSAGES, safe=False)
+def api_messages(request):
+    if request.method == 'POST':
+        try:
+            d = json.loads(request.body)
+            action = d.get('action')
+            if action == 'send':
+                new_id = len(MESSAGES) + 1
+                msg = { "id": new_id, "sender": d.get("sender"), "receiver": d.get("receiver"), "content": d.get("content"), "timestamp": datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S"), "read": False }
+                MESSAGES.insert(0, msg)
+                save_json(MESSAGES_FILE, MESSAGES)
+                return JsonResponse({"status": "success"})
+            elif action == 'list':
+                user = d.get("user"); role = d.get("role")
+                if role == "admin": return JsonResponse(MESSAGES, safe=False)
+                else: return JsonResponse([m for m in MESSAGES if m.get("receiver") == user or m.get("sender") == user], safe=False)
+        except Exception as e: return JsonResponse({"error": str(e)}, status=400)
+    return JsonResponse({}, 405)
 @csrf_exempt
-def api_change_password(request): return JsonResponse({})
-
-def serve_image(request, image_name):
-    path = os.path.join(BASE_DIR, 'images', image_name)
-    if os.path.exists(path): return FileResponse(open(path, 'rb'))
-    return HttpResponse("Resim yok", 404)
-
-def serve_academician_photo(request, image_name):
-    path = os.path.join(BASE_DIR, 'akademisyen_fotograflari', image_name)
-    if os.path.exists(path): return FileResponse(open(path, 'rb'))
-    return HttpResponse("Foto yok", 404)
+def api_change_password(request):
+    if request.method == 'POST':
+        try:
+            d = json.loads(request.body); email = d.get('email'); new_pass = d.get('newPassword')
+            if email in ACADEMICIANS_BY_EMAIL:
+                PASSWORDS_DB[email] = new_pass; save_json(PASSWORDS_FILE, PASSWORDS_DB)
+                return JsonResponse({"status": "success"})
+        except: return JsonResponse({"error": "Hata"}, 400)
+    return JsonResponse({}, 405)
 
 # --- URL YÖNLENDİRMELERİ ---
 urlpatterns = [
-    # Özel Kontrol Sayfası
-    path('debug-system/', system_check),
-    
-    # Assets
+    # 1. Assets (JS/CSS)
     re_path(r'^assets/(?P<path>.*)$', serve, {'document_root': ASSETS_DIR}),
     
-    # Resimler
+    # 2. Resimler (images klasöründen)
     path('images/<str:image_name>', serve_image),
     path('akademisyen_fotograflari/<str:image_name>', serve_academician_photo),
 
-    # API'ler (Sonunda slash olsa da olmasa da çalışır - ? işareti sayesinde)
+    # 3. API'ler (Soru işareti sayesinde / olmasa da çalışır)
     re_path(r'^api/login/?$', api_login),
     re_path(r'^api/logout/?$', api_logout),
     re_path(r'^api/admin-data/?$', api_list_admin),
@@ -357,7 +355,7 @@ urlpatterns = [
     re_path(r'^api/messages/?$', api_messages),
     re_path(r'^api/change-password/?$', api_change_password),
     
-    # React (Her şeyi yakalar)
+    # 4. React (Her şeyi yakalar)
     re_path(r'^(?P<resource>.*)$', serve_react),
 ]
 
