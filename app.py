@@ -50,9 +50,7 @@ if not settings.configured:
 
 # 2. VERİLERİ YÜKLE
 def load_data():
-    print("--- VERİLER YÜKLENİYOR ---")
-    
-    # Basit JSON'lar
+    # 1. JSON Yükleyiciler
     for key, var_name in [('decisions', 'FEEDBACK'), ('logs', 'LOGS'), ('announcements', 'ANNOUNCEMENTS'), 
                           ('messages', 'MESSAGES'), ('passwords', 'PASSWORDS')]:
         if os.path.exists(FILES[key]):
@@ -60,25 +58,27 @@ def load_data():
                 with open(FILES[key], 'r', encoding='utf-8') as f: DB[var_name] = json.load(f)
             except: pass
 
-    # Akademisyenler
+    # 2. Akademisyenler
     if os.path.exists(FILES['academicians']):
         try:
             with open(FILES['academicians'], 'r', encoding='utf-8') as f:
-                for p in json.load(f):
+                data = json.load(f)
+                for p in data:
                     if p.get("Fullname"): DB['ACADEMICIANS_BY_NAME'][p["Fullname"].strip().upper()] = p
                     if p.get("Email"): DB['ACADEMICIANS_BY_EMAIL'][p["Email"].strip().lower()] = p
         except: pass
 
-    # Projeler
+    # 3. Projeler
     if os.path.exists(FILES['projects']):
         try:
             with open(FILES['projects'], 'r', encoding='utf-8') as f:
-                for p in json.load(f):
+                data = json.load(f)
+                for p in data:
                     pid = str(p.get("project_id", "")).strip()
                     if pid: DB['PROJECTS'][pid] = p
         except: pass
 
-    # Eşleşmeler
+    # 4. Eşleşmeler
     if os.path.exists(FILES['matches']):
         try:
             with open(FILES['matches'], 'r', encoding='utf-8') as f:
@@ -102,7 +102,21 @@ def load_data():
 
 load_data()
 
-# 3. YARDIMCI FONKSİYONLAR
+# 3. SİSTEM DURUM RAPORU (KONTROL İÇİN)
+def system_status(request):
+    status = {
+        "DURUM": "Çalışıyor",
+        "DOSYALAR": {k: "VAR" if os.path.exists(v) else "YOK (Eksik)" for k,v in FILES.items()},
+        "VERI_SAYILARI": {
+            "Akademisyenler": len(DB['ACADEMICIANS_BY_EMAIL']),
+            "Projeler": len(DB['PROJECTS']),
+            "Eslesmeler": len(DB['MATCHES']),
+            "Fotograf_Klasoru": "VAR" if os.path.exists(PHOTOS_DIR) else "YOK"
+        }
+    }
+    return JsonResponse(status, json_dumps_params={'indent': 4})
+
+# 4. YARDIMCI FONKSİYONLAR
 def save_json(file_path, data):
     try:
         with open(file_path, 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False, indent=4)
@@ -111,18 +125,16 @@ def save_json(file_path, data):
 def log_access(name, role, action):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     DB['LOGS'].insert(0, {"timestamp": now, "name": name, "role": role, "action": action})
-    if len(DB['LOGS']) > 500: DB['LOGS'].pop()
     save_json(FILES['logs'], DB['LOGS'])
 
-# 4. DOSYA SUNUCULARI
+# 5. DOSYA SUNUCULARI
 def serve_files(request, path, folder, default_type=None):
-    # Klasördeki dosyayı bul (Büyük/Küçük harf duyarsız)
     target_path = os.path.join(folder, path)
     if os.path.exists(target_path):
         mtype, _ = mimetypes.guess_type(target_path)
         return FileResponse(open(target_path, 'rb'), content_type=mtype or default_type)
     
-    # Dosya yoksa klasörde ara (Linux case-sensitivity çözümü)
+    # Case-insensitive arama (Linux için)
     if os.path.exists(folder):
         for f in os.listdir(folder):
             if f.lower() == path.lower():
@@ -132,20 +144,12 @@ def serve_files(request, path, folder, default_type=None):
     return HttpResponse(status=404)
 
 def serve_react(request, resource=""):
-    # Assets (JS/CSS)
-    if resource.startswith("assets/"):
-        return serve_files(request, resource, DIST_DIR)
-    
-    # Root Files (vite.svg vb)
-    if resource and os.path.exists(os.path.join(DIST_DIR, resource)):
-        return serve_files(request, resource, DIST_DIR)
-
-    # SPA Fallback
+    if resource.startswith("assets/"): return serve_files(request, resource, DIST_DIR)
+    if resource and os.path.exists(os.path.join(DIST_DIR, resource)): return serve_files(request, resource, DIST_DIR)
     try: return FileResponse(open(os.path.join(DIST_DIR, 'index.html'), 'rb'))
     except: return HttpResponse("Sistem yükleniyor...", status=503)
 
-# 5. API ENDPOINTLERİ (DOLU VE ÇALIŞIR HALDE)
-
+# 6. API ENDPOINTLERİ
 @csrf_exempt
 def api_login(request):
     if request.method == 'POST':
@@ -172,45 +176,46 @@ def api_login(request):
 @csrf_exempt
 def api_profile(request):
     if request.method == 'POST':
-        req_name = json.loads(request.body).get('name')
-        if not req_name: return JsonResponse({}, 400)
-        
-        # 1. Profil Bilgisi
-        raw_profile = DB['ACADEMICIANS_BY_NAME'].get(req_name.upper(), {})
-        profile = {
-            "Fullname": req_name, "Email": raw_profile.get("Email", "-"), 
-            "Field": raw_profile.get("Field", "-"), "Phone": raw_profile.get("Phone", "-"), 
-            "Image": raw_profile.get("Image"), "Duties": raw_profile.get("Duties", [])
-        }
+        try:
+            req_name = json.loads(request.body).get('name')
+            if not req_name: return JsonResponse({}, 400)
+            
+            raw_profile = DB['ACADEMICIANS_BY_NAME'].get(req_name.upper(), {})
+            img_path = raw_profile.get("Image")
+            if img_path and not img_path.startswith("http"):
+                img_path = f"/akademisyen_fotograflari/{os.path.basename(img_path)}"
 
-        # 2. Proje Eşleşmeleri
-        p_matches = [m for m in DB['MATCHES'] if m["name"] == req_name]
-        enriched = []
-        for m in p_matches:
-            pd = DB['PROJECTS'].get(m["projId"], {})
-            stat, note, rating = "waiting", "", 0
+            profile = {
+                "Fullname": req_name, "Email": raw_profile.get("Email", "-"), 
+                "Field": raw_profile.get("Field", "-"), "Phone": raw_profile.get("Phone", "-"), 
+                "Image": img_path, "Duties": raw_profile.get("Duties", [])
+            }
+
+            p_matches = [m for m in DB['MATCHES'] if m["name"] == req_name]
+            enriched = []
+            for m in p_matches:
+                pd = DB['PROJECTS'].get(m["projId"], {})
+                stat, note, rating = "waiting", "", 0
+                for fb in DB['FEEDBACK']:
+                    if fb["academician"] == req_name and fb["projId"] == m["projId"]:
+                        stat = fb["decision"]; note = fb.get("note", ""); rating = fb.get("rating", 0); break
+                
+                collaborators = []
+                for fb in DB['FEEDBACK']:
+                    if fb["projId"] == m["projId"] and fb["decision"] == "accepted" and fb["academician"] != req_name:
+                        collaborators.append(fb["academician"])
+                
+                project_title = pd.get("title") or pd.get("acronym") or f"Proje-{m['projId']}"
+                enriched.append({
+                    "id": m["projId"], "score": m["score"], "reason": m["reason"], "title": project_title,
+                    "objective": pd.get("objective", ""), "budget": pd.get("overall_budget", "-"), 
+                    "status": pd.get("status", "-"), "url": pd.get("url", "#"), 
+                    "decision": stat, "note": note, "rating": rating, "collaborators": collaborators
+                })
             
-            # Geri bildirim kontrolü
-            for fb in DB['FEEDBACK']:
-                if fb["academician"] == req_name and fb["projId"] == m["projId"]:
-                    stat = fb["decision"]; note = fb.get("note", ""); rating = fb.get("rating", 0); break
-            
-            # Ortak çalışanlar
-            collaborators = []
-            for fb in DB['FEEDBACK']:
-                if fb["projId"] == m["projId"] and fb["decision"] == "accepted" and fb["academician"] != req_name:
-                    collaborators.append(fb["academician"])
-            
-            project_title = pd.get("title") or pd.get("acronym") or f"Proje-{m['projId']}"
-            enriched.append({
-                "id": m["projId"], "score": m["score"], "reason": m["reason"], "title": project_title,
-                "objective": pd.get("objective", ""), "budget": pd.get("overall_budget", "-"), 
-                "status": pd.get("status", "-"), "url": pd.get("url", "#"), 
-                "decision": stat, "note": note, "rating": rating, "collaborators": collaborators
-            })
-        
-        enriched.sort(key=lambda x: x['score'], reverse=True)
-        return JsonResponse({"profile": profile, "projects": enriched})
+            enriched.sort(key=lambda x: x['score'], reverse=True)
+            return JsonResponse({"profile": profile, "projects": enriched})
+        except Exception as e: return JsonResponse({"error": str(e)}, status=500)
     return JsonResponse({}, 400)
 
 @csrf_exempt
@@ -232,13 +237,14 @@ def api_project_decision(request):
     return JsonResponse({}, 405)
 
 def api_list_admin(request):
-    # Admin Paneli için Veri Özeti
     stats = {}
     for m in DB['MATCHES']:
         nk = m["name"]
         if nk not in stats:
             det = DB['ACADEMICIANS_BY_NAME'].get(nk.upper(), {})
-            stats[nk] = {"name": nk, "email": det.get("Email", "-"), "project_count": 0, "best_score": 0, "image": det.get("Image")}
+            img = det.get("Image")
+            if img and not img.startswith("http"): img = f"akademisyen_fotograflari/{os.path.basename(img)}"
+            stats[nk] = {"name": nk, "email": det.get("Email", "-"), "project_count": 0, "best_score": 0, "image": img}
         stats[nk]["project_count"] += 1
         if m["score"] > stats[nk]["best_score"]: stats[nk]["best_score"] = m["score"]
     
@@ -264,7 +270,11 @@ def api_network_graph(request):
     user = request.GET.get('user')
     if not user: return JsonResponse({"nodes": [], "links": []})
     
-    nodes = [{"id": user, "isCenter": True, "img": DB['ACADEMICIANS_BY_NAME'].get(user.upper(), {}).get("Image")}]
+    u_det = DB['ACADEMICIANS_BY_NAME'].get(user.upper(), {})
+    u_img = u_det.get("Image")
+    if u_img and not u_img.startswith("http"): u_img = f"akademisyen_fotograflari/{os.path.basename(u_img)}"
+
+    nodes = [{"id": user, "isCenter": True, "img": u_img}]
     links = []
     collaborators = set()
     
@@ -275,7 +285,10 @@ def api_network_graph(request):
             collaborators.add(fb["academician"])
             
     for col in collaborators:
-        nodes.append({"id": col, "isCenter": False, "img": DB['ACADEMICIANS_BY_NAME'].get(col.upper(), {}).get("Image")})
+        c_det = DB['ACADEMICIANS_BY_NAME'].get(col.upper(), {})
+        c_img = c_det.get("Image")
+        if c_img and not c_img.startswith("http"): c_img = f"akademisyen_fotograflari/{os.path.basename(c_img)}"
+        nodes.append({"id": col, "isCenter": False, "img": c_img})
         links.append({"source": user, "target": col})
         
     return JsonResponse({"nodes": nodes, "links": links}, safe=False)
@@ -321,6 +334,9 @@ def api_logout(request): return JsonResponse({"status": "success"})
 
 # URL YÖNLENDİRMELERİ
 urlpatterns = [
+    # Rapor Sayfası (Sorunu buradan anlayacağız)
+    path('status/', system_status),
+
     re_path(r'^images/(?P<path>.*)$', lambda r, path: serve_files(r, path, IMAGES_DIR, "image/png")),
     re_path(r'^akademisyen_fotograflari/(?P<path>.*)$', lambda r, path: serve_files(r, path, PHOTOS_DIR, "image/jpeg")),
     
