@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+/* Özel Stillerin */
+body { font-family: 'Roboto', sans-serif; background-color: #f1f5f9; color: #334155; }
+
+.login-bg {
+    background-image: url('https://estuoys.eskisehir.edu.tr/accounts/1/files/11881/download?verifier=zf6pO83pq5wzqndBOuW2cNErx0iB9nYioCNQVvKf');
+    background-size: cover; background-position: center bottom; background-attachment: fixed;
+}
+
+.glass-panel {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(16px);
+    border-top: 6px solid #003d82;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.loader {
+    border: 3px solid #e2e8f0;
+    border-top: 3px solid #003d82;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }

@@ -1,0 +1,10 @@
+Django==5.0.1
+django-cors-headers
+gunicorn
+requests
+pandas
+numpy
+openpyxl
+pillow
+python-dotenv
+whitenoise
