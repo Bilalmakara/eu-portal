@@ -1,10 +1,10 @@
 import axios from 'axios';
 
-// Django'nun çalıştığı adres (8000 portu)
-export const API_BASE_URL = "";
+// ARTIK BACKEND ADRESİNİ TAM OLARAK YAZIYORUZ
+// Çünkü Frontend ve Backend ayrı evlerde yaşayacaklar.
+export const API_BASE_URL = "https://eu-portal.onrender.com"; 
 
 const api = axios.create({
-    // Tüm API istekleri otomatik olarak /api ile başlar
     baseURL: API_BASE_URL + "/api",
 });
 
