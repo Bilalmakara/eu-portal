@@ -4,7 +4,7 @@ import ForceGraph from 'force-graph';
 
 // --- API AYARLARI ---
 // ÖNEMLİ DÜZELTME: Burayı boş bıraktık. Böylece canlı sitede otomatik olarak doğru adresi alır.
-const API_BASE_URL = ""; 
+const API_BASE_URL = "https://eu-portal.onrender.com"; 
 const api = axios.create({ baseURL: API_BASE_URL + "/api" });
 
 // --- YARDIMCI FONKSİYONLAR ---
